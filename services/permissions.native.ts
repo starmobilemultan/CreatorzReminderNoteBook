@@ -1,15 +1,15 @@
+
 /**
  * permissions.native.ts — iOS & Android implementation
- * All native-only imports are lazy (inside functions) to prevent SSR leakage.
+ * Uses only React Native's built-in Linking API (no expo-intent-launcher)
+ * so no extra native module is required.
  *
- * ROOT CAUSE FIXES:
- * 1. expo-constants package accessor fixed: newer versions export directly, not via .default
- * 2. Intent action strings corrected for Android 12–14+ compatibility
- * 3. Full-screen intent permission settings added (Android 14+ requires explicit grant)
- * 4. Battery optimization crash fixed: single require call, proper error isolation
- * 5. Fallback chain: specific intent → general optimization → Linking.openSettings()
+ * Android settings pages are opened via the intent:// URI scheme which
+ * React Native's Linking.openURL() handles natively on Android.
  */
 import { Alert, Linking, Platform } from 'react-native';
+import Constants from 'expo-constants'; // Import Constants directly
+import * as Notifications from 'expo-notifications'; // Import Notifications directly
 
 export type PermissionResult = {
   notifications: boolean;
@@ -18,35 +18,38 @@ export type PermissionResult = {
 };
 
 // ─── Safe package getter ───────────────────────────────────────────────────────
-// expo-constants changed its export shape across versions — handle both.
 function getPackageName(): string {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const C = require('expo-constants');
-    // Try all known accessor paths
+    // Access expoConfig directly from the imported Constants
     const pkg =
-      C?.default?.expoConfig?.android?.package ??
-      C?.expoConfig?.android?.package ??
-      C?.default?.manifest?.android?.package ??
-      C?.manifest?.android?.package ??
-      C?.default?.appOwnership !== undefined
-        ? undefined
-        : undefined;
-
+      Constants.expoConfig?.android?.package ??
+      Constants.manifest?.android?.package; // manifest is deprecated but kept for older SDKs
     if (pkg && typeof pkg === 'string') return pkg;
   } catch (_) {}
-  // Hardcoded fallback — matches the slug in app.json; must be updated if package name changes
   return 'com.anonymous';
 }
 
-// ─── Safe intent launcher ─────────────────────────────────────────────────────
+// ─── Build Android intent URI ──────────────────────────────────────────────────
+// Format: intent:#Intent;action=<action>;data=<data>;end
+// This is the standard way to fire Android Settings intents via Linking.openURL.
+function buildIntentUri(action: string, data?: string): string {
+  let uri = `intent:#Intent;action=${action}`;
+  if (data) uri += `;data=${encodeURIComponent(data)}`;
+  uri += ';end';
+  return uri;
+}
+
+// ─── Safe intent launcher via Linking ─────────────────────────────────────────
 // Returns true on success, false on failure (never throws).
-async function launchIntent(action: string, extras?: Record<string, any>): Promise<boolean> {
+async function launchIntent(action: string, data?: string): Promise<boolean> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { startActivityAsync } = require('expo-intent-launcher');
-    await startActivityAsync(action, extras ?? {});
-    return true;
+    const uri = buildIntentUri(action, data);
+    const supported = await Linking.canOpenURL(uri).catch(() => true); // assume true on failure
+    if (supported) {
+      await Linking.openURL(uri);
+      return true;
+    }
+    return false;
   } catch (_) {
     return false;
   }
@@ -55,8 +58,7 @@ async function launchIntent(action: string, extras?: Record<string, any>): Promi
 // ─── Notification permission ──────────────────────────────────────────────────
 export async function checkNotificationPermission(): Promise<boolean> {
   try {
-    const { getPermissionsAsync } = require('expo-notifications');
-    const { status } = await getPermissionsAsync();
+    const { status } = await Notifications.getPermissionsAsync();
     return status === 'granted';
   } catch {
     return false;
@@ -65,8 +67,7 @@ export async function checkNotificationPermission(): Promise<boolean> {
 
 export async function requestNotificationPermissionNative(): Promise<boolean> {
   try {
-    const { requestPermissionsAsync } = require('expo-notifications');
-    const { status } = await requestPermissionsAsync({
+    const { status } = await Notifications.requestPermissionsAsync({
       ios: {
         allowAlert: true,
         allowBadge: true,
@@ -86,8 +87,7 @@ export async function requestNotificationPermissionNative(): Promise<boolean> {
 export async function checkExactAlarmPermission(): Promise<boolean> {
   if (Platform.OS !== 'android') return true;
   try {
-    const { getPermissionsAsync } = require('expo-notifications');
-    const { status } = await getPermissionsAsync();
+    const { status } = await Notifications.getPermissionsAsync();
     return status === 'granted';
   } catch {
     return true;
@@ -102,19 +102,16 @@ export async function openExactAlarmSettings(): Promise<void> {
   if (Platform.OS !== 'android') return;
   const pkg = getPackageName();
 
-  // Try the direct package-scoped alarm permission page (Android 12+ / API 31+)
   const ok = await launchIntent(
     'android.settings.REQUEST_SCHEDULE_EXACT_ALARM',
-    { data: `package:${pkg}` }
+    `package:${pkg}`
   );
   if (!ok) {
-    // Fallback: general alarm & reminder settings
-    const ok2 = await launchIntent('android.settings.APPLICATION_DETAILS_SETTINGS', {
-      data: `package:${pkg}`,
-    });
-    if (!ok2) {
-      await Linking.openSettings().catch(() => {});
-    }
+    const ok2 = await launchIntent(
+      'android.settings.APPLICATION_DETAILS_SETTINGS',
+      `package:${pkg}`
+    );
+    if (!ok2) await Linking.openSettings().catch(() => {});
   }
 }
 
@@ -127,19 +124,16 @@ export async function openFullScreenIntentSettings(): Promise<void> {
   if (Platform.OS !== 'android') return;
   const pkg = getPackageName();
 
-  // Android 14+ specific action
   const ok = await launchIntent(
     'android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT',
-    { data: `package:${pkg}` }
+    `package:${pkg}`
   );
   if (!ok) {
-    // Fallback: app details page where user can manage special permissions
-    const ok2 = await launchIntent('android.settings.APPLICATION_DETAILS_SETTINGS', {
-      data: `package:${pkg}`,
-    });
-    if (!ok2) {
-      await Linking.openSettings().catch(() => {});
-    }
+    const ok2 = await launchIntent(
+      'android.settings.APPLICATION_DETAILS_SETTINGS',
+      `package:${pkg}`
+    );
+    if (!ok2) await Linking.openSettings().catch(() => {});
   }
 }
 
@@ -152,21 +146,22 @@ export async function requestIgnoreBatteryOptimization(): Promise<void> {
   if (Platform.OS !== 'android') return;
   const pkg = getPackageName();
 
-  // 1. Try direct "ignore battery optimizations" for this specific package
+  // 1. Direct battery optimization exemption for this package
   const ok = await launchIntent(
     'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
-    { data: `package:${pkg}` }
+    `package:${pkg}`
   );
   if (ok) return;
 
-  // 2. Try the general "battery optimization" list page
+  // 2. General battery optimization list
   const ok2 = await launchIntent('android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS');
   if (ok2) return;
 
-  // 3. Try the app details page
-  const ok3 = await launchIntent('android.settings.APPLICATION_DETAILS_SETTINGS', {
-    data: `package:${pkg}`,
-  });
+  // 3. App details page
+  const ok3 = await launchIntent(
+    'android.settings.APPLICATION_DETAILS_SETTINGS',
+    `package:${pkg}`
+  );
   if (ok3) return;
 
   // 4. Final fallback
