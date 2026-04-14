@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { requestNotificationPermissions } from '../services/notifications';
-import { runStartupPermissionCheck, promptBatteryOptimization } from '../services/permissions';
+import { runStartupPermissionCheck, promptBatteryOptimization, promptFullScreenIntent } from '../services/permissions';
 import {
   View,
   Text,
@@ -212,7 +212,20 @@ export default function OnboardingScreen() {
     await runStartupPermissionCheck().catch(() => {});
     // Prompt battery optimization on Android so alarms work when app is killed
     if (typeof promptBatteryOptimization === 'function') {
-      promptBatteryOptimization(() => {}, () => {});
+      promptBatteryOptimization(
+        () => {
+          // After battery optimization, prompt full-screen intent (Android 14+)
+          if (typeof promptFullScreenIntent === 'function') {
+            promptFullScreenIntent(() => {}, () => {});
+          }
+        },
+        () => {
+          // Even if user skips battery opt, still prompt for full-screen
+          if (typeof promptFullScreenIntent === 'function') {
+            promptFullScreenIntent(() => {}, () => {});
+          }
+        }
+      );
     }
     updateSettings({ onboardingCompleted: true });
     router.replace('/setup-security');

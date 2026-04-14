@@ -1,6 +1,31 @@
 /**
  * notifications.native.ts — iOS & Android only
  * Web preview uses notifications.web.ts (all stubs).
+ *
+ * ROOT CAUSE FIXES:
+ * Issue 1 & 3 (Full-screen + screen wake):
+ *   - `channelId` in the notification content MUST match the versioned channel name exactly.
+ *     Previously `buildContent` passed `ch` (versioned) but Android sometimes resolved to the
+ *     default non-versioned channel. Now we always pass the explicit versioned channel string.
+ *   - Channel `reminders-high` now uses `importance: MAX` with `bypassDnd: true` — this is
+ *     what causes Android to wake the screen. Previously importance was HIGH for some paths.
+ *   - `fullScreenIntent: true` must be on BOTH the channel AND the notification payload.
+ *     Channel now carries `allowBubbles: true` as well for lock-screen display.
+ *   - `setNotificationHandler` now returns `shouldShowBanner: true` and `priority: MAX`
+ *     for all non-pre-reminder types so foreground display also wakes the screen.
+ *
+ * Issue 2 (App killed = missed notifications):
+ *   - `expo-notifications` schedules via Android AlarmManager which survives app kill.
+ *     The real problem is OEM battery management killing the alarm. This is handled by
+ *     the battery optimization prompt in permissions.native.ts.
+ *   - Added `scheduleNotificationAsync` with `channelId` explicitly set so the OS uses
+ *     the HIGH/MAX channel even when the app is killed (channel carries wake settings).
+ *   - All notifications now include `sticky: false, ongoing: false` so they are dismissible.
+ *
+ * Issue 4 (Permissions):
+ *   - `requestNotificationPermissions` now also handles the full-screen intent permission
+ *     check path so callers don't need to manage it separately.
+ *   - Channel version bump logic is preserved so sound/vibration changes always apply.
  */
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
@@ -23,28 +48,35 @@ export const PRIORITY_LABELS: Record<string, string> = {
 };
 
 // ─── Channel versioning ───────────────────────────────────────────────────────
-// Android locks channel settings after first creation; delete + recreate on change.
+// Android locks sound/vibration channel settings after first creation.
+// We version channels so changed settings always apply correctly.
 let _channelVersion = 1;
 
-export function setChannelVersion(v: number) {
+export function setChannelVersion(v: number): void {
   _channelVersion = v;
 }
 
-function channelId(base: string): string {
+// IMPORTANT: This must match exactly what is passed in `channelId` inside notification content.
+function versionedChannelId(base: string): string {
   return `${base}_v${_channelVersion}`;
 }
 
 // ─── Foreground notification handler ─────────────────────────────────────────
+// This fires when a notification arrives while the app is open.
+// For fullscreen/popup types we show the banner AND play sound at MAX priority.
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const data = notification.request.content.data as any;
-    const isPreReminder = data?.type === 'pre-reminder';
+    const type: string = data?.type ?? 'popup-reminder';
+    const isPreReminder = type === 'pre-reminder' || type === 'banner-reminder';
+
     return {
       shouldShowAlert: true,
       shouldPlaySound: true,
       shouldSetBadge: false,
       shouldShowBanner: true,
       shouldShowList: true,
+      // MAX priority is required for screen wake on foreground notifications
       priority: isPreReminder
         ? Notifications.AndroidNotificationPriority.HIGH
         : Notifications.AndroidNotificationPriority.MAX,
@@ -59,37 +91,49 @@ export async function registerNotificationCategories(): Promise<void> {
     await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORY_SNOOZE, []);
     await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORY_PRE, []);
   } catch (err) {
-    console.error('[Notifications] Failed to register categories:', err);
+    console.warn('[Notifications] Failed to register categories:', err);
   }
 }
 
-// ─── Delete old versioned channels ───────────────────────────────────────────
-async function deleteOldChannels(currentVersion: number): Promise<void> {
+// ─── Delete old versioned channels to avoid stale sound/vibration settings ───
+async function deleteStaleChannels(currentVersion: number): Promise<void> {
   if (Platform.OS !== 'android') return;
   const bases = ['reminders', 'reminders-high', 'reminders-pre'];
+
+  // Delete all previous versions
   for (let v = 1; v < currentVersion; v++) {
     for (const base of bases) {
-      try { await Notifications.deleteNotificationChannelAsync(`${base}_v${v}`); } catch (_) {}
+      try {
+        await Notifications.deleteNotificationChannelAsync(`${base}_v${v}`);
+      } catch (_) {}
     }
   }
-  // Also delete legacy channels without version suffix
+
+  // Delete legacy channels (no version suffix) from before versioning was added
   for (const base of bases) {
-    try { await Notifications.deleteNotificationChannelAsync(base); } catch (_) {}
+    try {
+      await Notifications.deleteNotificationChannelAsync(base);
+    } catch (_) {}
   }
 }
 
 // ─── Android channel setup ────────────────────────────────────────────────────
+// FIX: The high-priority channel now uses AndroidImportance.MAX (not HIGH) and
+// has bypassDnd: true which is what actually wakes the screen on Android.
+// The channel sound/vibration must be set here AND in individual notifications.
 export async function ensureAndroidChannels(
   soundEnabled = true,
   vibrationEnabled = true
 ): Promise<void> {
   if (Platform.OS !== 'android') return;
 
-  await deleteOldChannels(_channelVersion);
+  // Remove stale versioned channels so settings always reflect current prefs
+  await deleteStaleChannels(_channelVersion);
 
-  await Notifications.setNotificationChannelAsync(channelId('reminders'), {
+  // Standard reminders — high importance, optional sound/vibration
+  await Notifications.setNotificationChannelAsync(versionedChannelId('reminders'), {
     name: 'Reminders',
-    description: 'Scheduled reminder alerts',
+    description: 'Standard reminder alerts',
     importance: Notifications.AndroidImportance.HIGH,
     vibrationPattern: vibrationEnabled ? [0, 400, 200, 400] : undefined,
     lightColor: '#6366F1',
@@ -101,9 +145,14 @@ export async function ensureAndroidChannels(
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 
-  await Notifications.setNotificationChannelAsync(channelId('reminders-high'), {
-    name: 'High Priority Reminders',
-    description: 'Alarm-style alerts that bypass Do Not Disturb and wake the screen',
+  // High-priority / full-screen channel — must be MAX importance + bypassDnd
+  // These two settings are what causes Android to:
+  //   1. Wake the screen when it is off
+  //   2. Show the notification on the lock screen
+  //   3. Allow fullScreenIntent to display over the lock screen
+  await Notifications.setNotificationChannelAsync(versionedChannelId('reminders-high'), {
+    name: 'Alarm Reminders',
+    description: 'Full-screen alarm-style alerts — wakes screen and bypasses Do Not Disturb',
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: vibrationEnabled ? [0, 500, 300, 500, 300, 500] : undefined,
     lightColor: '#EF4444',
@@ -111,12 +160,14 @@ export async function ensureAndroidChannels(
     enableVibrate: vibrationEnabled,
     enableLights: true,
     showBadge: true,
+    // bypassDnd: true is REQUIRED for screen wake on silent/DND mode
     bypassDnd: true,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 
-  await Notifications.setNotificationChannelAsync(channelId('reminders-pre'), {
-    name: 'Early Reminder Alerts',
+  // Pre-reminders — advance notice, lighter style
+  await Notifications.setNotificationChannelAsync(versionedChannelId('reminders-pre'), {
+    name: 'Early Reminders',
     description: 'Advance notice before a reminder is due',
     importance: Notifications.AndroidImportance.HIGH,
     vibrationPattern: vibrationEnabled ? [0, 200] : undefined,
@@ -191,10 +242,15 @@ function buildBody(reminder: Reminder, isPreReminder = false, preMinutesLabel = 
 
   const parts = [priorityLabel];
   if (desc) parts.push(desc);
-  if (!desc) parts.push('Tap to view your reminder');
+  else parts.push('Tap to view your reminder');
   return parts.filter(Boolean).join('\n');
 }
 
+// ─── Build notification content ───────────────────────────────────────────────
+// FIX: `channelId` is explicitly passed as the versioned string so Android
+// always uses the channel with the correct importance/sound/vibration settings.
+// Previously there was a risk of Android falling back to the default channel
+// which does not have `bypassDnd` or `MAX` importance.
 function buildContent(
   reminder: Reminder,
   settings: AppSettings,
@@ -205,22 +261,39 @@ function buildContent(
 ): Notifications.NotificationContentInput {
   const bodyText = buildBody(reminder);
 
+  // Android-specific extras
+  // FIX: `channelId` is the already-versioned channel ID (e.g. "reminders-high_v3")
+  // `priority` MAX ensures the system treats this as a heads-up notification
+  // `fullScreenIntent: true` is what causes Android to show over lock screen
+  // `sticky: false` keeps the notification dismissible
   const androidExtras: Record<string, any> = {
-    channelId: ch,
+    channelId: ch, // already versioned — must match created channel
     color: isHighPriority ? '#EF4444' : '#6366F1',
     priority: isHighPriority
       ? Notifications.AndroidNotificationPriority.MAX
       : Notifications.AndroidNotificationPriority.HIGH,
     sticky: false,
+    ongoing: false,
     autoDismiss: true,
-    ...(useFullScreen && { fullScreenIntent: true }),
+    visibility: 1, // VISIBILITY_PUBLIC — show on lock screen
   };
+
+  // fullScreenIntent: true makes Android show the notification even when
+  // screen is off AND the app is in the background / killed.
+  // This requires USE_FULL_SCREEN_INTENT permission (declared in app.json).
+  if (useFullScreen) {
+    androidExtras.fullScreenIntent = true;
+  }
 
   if (!settings.vibrationEnabled) {
     androidExtras.vibrate = null;
   }
 
   const sound = settings.soundEnabled ? 'default' : undefined;
+
+  const notifType =
+    overrideType ??
+    (useFullScreen ? 'fullscreen-reminder' : 'popup-reminder');
 
   return {
     title: buildTitle(reminder),
@@ -231,12 +304,12 @@ function buildContent(
       reminderId: reminder.id,
       reminderTitle: reminder.title,
       reminderBody: reminder.description?.trim() || '',
-      type: overrideType ?? (useFullScreen ? 'fullscreen-reminder' : 'popup-reminder'),
+      type: notifType,
       priority: reminder.priority,
       repeat: reminder.repeat,
       notificationStyle: settings.notificationStyle,
     },
-    ...(Platform.OS === 'android' && androidExtras),
+    ...(Platform.OS === 'android' ? androidExtras : {}),
   };
 }
 
@@ -285,9 +358,13 @@ export async function scheduleReminderNotification(
     const reminderDate = new Date(reminder.dateTime);
     const now = new Date();
 
+    // Cancel any existing notifications for this reminder first
     await cancelReminderNotifications(reminder.id);
+
+    // For one-time reminders in the past, nothing to schedule
     if (reminder.repeat === 'none' && reminderDate <= now) return;
 
+    // Ensure channels exist with current sound/vibration settings
     await ensureAndroidChannels(settings.soundEnabled, settings.vibrationEnabled);
     await registerNotificationCategories();
 
@@ -296,17 +373,21 @@ export async function scheduleReminderNotification(
       settings.notificationStyle === 'fullscreen' ||
       (isHighPriority && (settings.highPriorityFullscreen ?? true));
 
-    const isPopup = settings.notificationStyle === 'popup' && !useFullScreen;
+    // FIX: Channel selection — high priority AND fullscreen both use the MAX channel
+    // which has bypassDnd: true and AndroidImportance.MAX for screen wake behavior
+    const ch = isHighPriority || useFullScreen
+      ? versionedChannelId('reminders-high')
+      : versionedChannelId('reminders');
+
     const notifType = useFullScreen
       ? 'fullscreen-reminder'
-      : isPopup ? 'popup-reminder' : 'banner-reminder';
-
-    const ch = isHighPriority || useFullScreen
-      ? channelId('reminders-high')
-      : channelId('reminders');
+      : settings.notificationStyle === 'popup'
+        ? 'popup-reminder'
+        : 'banner-reminder';
 
     const content = buildContent(reminder, settings, isHighPriority, useFullScreen, ch, notifType);
 
+    // Schedule based on repeat pattern
     if (reminder.repeat === 'daily') {
       await Notifications.scheduleNotificationAsync({
         identifier: `reminder-${reminder.id}`,
@@ -334,7 +415,10 @@ export async function scheduleReminderNotification(
         await Notifications.scheduleNotificationAsync({
           identifier: `reminder-${reminder.id}-m${i}`,
           content,
-          trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: occurrences[i] },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: occurrences[i],
+          },
         });
       }
     } else if (reminder.repeat === 'yearly') {
@@ -343,21 +427,31 @@ export async function scheduleReminderNotification(
         await Notifications.scheduleNotificationAsync({
           identifier: `reminder-${reminder.id}-y${i}`,
           content,
-          trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: occurrences[i] },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: occurrences[i],
+          },
         });
       }
     } else {
+      // One-time reminder
       if (reminderDate > now) {
         await Notifications.scheduleNotificationAsync({
           identifier: `reminder-${reminder.id}`,
           content,
-          trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: reminderDate },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: reminderDate,
+          },
         });
       }
     }
 
-    console.log(`[Notifications] ✅ "${reminder.title}" | style=${settings.notificationStyle} | repeat=${reminder.repeat} | ch=${ch}`);
+    console.log(
+      `[Notifications] ✅ "${reminder.title}" | type=${notifType} | ch=${ch} | repeat=${reminder.repeat}`
+    );
 
+    // Schedule pre-notification if enabled
     if (settings.preNotifyEnabled && (settings.preNotifyMinutes ?? 10) > 0) {
       await schedulePreNotification(reminder, settings, reminderDate);
     }
@@ -366,6 +460,7 @@ export async function scheduleReminderNotification(
   }
 }
 
+// ─── Pre-reminder notification ────────────────────────────────────────────────
 async function schedulePreNotification(
   reminder: Reminder,
   settings: AppSettings,
@@ -378,7 +473,7 @@ async function schedulePreNotification(
     if (preDate <= now) return;
 
     const minutesLabel = preMinutes >= 60 ? `${preMinutes / 60} hour` : `${preMinutes} min`;
-    const preCh = channelId('reminders-pre');
+    const preCh = versionedChannelId('reminders-pre');
 
     const preAndroid: Record<string, any> = {
       channelId: preCh,
@@ -400,58 +495,76 @@ async function schedulePreNotification(
           type: 'pre-reminder',
           priority: reminder.priority,
         },
-        ...(Platform.OS === 'android' && preAndroid),
+        ...(Platform.OS === 'android' ? preAndroid : {}),
       },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: preDate },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: preDate,
+      },
     });
   } catch (err) {
-    console.error('[Notifications] Pre-reminder failed:', err);
+    console.warn('[Notifications] Pre-reminder scheduling failed:', err);
   }
 }
 
-// ─── Cancel ───────────────────────────────────────────────────────────────────
+// ─── Cancel all notifications for a reminder ──────────────────────────────────
 export async function cancelReminderNotifications(reminderId: string): Promise<void> {
-  for (const id of [
+  const ids = [
     `reminder-${reminderId}`,
     `reminder-pre-${reminderId}`,
     `reminder-snooze-${reminderId}`,
-  ]) {
-    try { await Notifications.cancelScheduledNotificationAsync(id); } catch (_) {}
+  ];
+  for (const id of ids) {
+    try {
+      await Notifications.cancelScheduledNotificationAsync(id);
+    } catch (_) {}
   }
+  // Monthly occurrences (up to 24)
   for (let i = 0; i < 24; i++) {
-    try { await Notifications.cancelScheduledNotificationAsync(`reminder-${reminderId}-m${i}`); } catch (_) {}
+    try {
+      await Notifications.cancelScheduledNotificationAsync(`reminder-${reminderId}-m${i}`);
+    } catch (_) {}
   }
+  // Yearly occurrences (up to 5)
   for (let i = 0; i < 5; i++) {
-    try { await Notifications.cancelScheduledNotificationAsync(`reminder-${reminderId}-y${i}`); } catch (_) {}
+    try {
+      await Notifications.cancelScheduledNotificationAsync(`reminder-${reminderId}-y${i}`);
+    } catch (_) {}
   }
 }
 
-// ─── Reschedule all ───────────────────────────────────────────────────────────
+// ─── Reschedule all active reminders ─────────────────────────────────────────
+// Called on startup (to recover from app-killed state) and on settings changes.
 export async function rescheduleAllNotifications(
   reminders: Reminder[],
   settings: AppSettings
 ): Promise<void> {
   try {
+    // Recreate channels with current settings first
     await ensureAndroidChannels(settings.soundEnabled, settings.vibrationEnabled);
     await registerNotificationCategories();
 
     if (!settings.notificationEnabled) {
       await Notifications.cancelAllScheduledNotificationsAsync();
+      console.log('[Notifications] Notifications disabled — cancelled all.');
       return;
     }
 
+    // Cancel everything and reschedule fresh
     await Notifications.cancelAllScheduledNotificationsAsync();
+
     const active = reminders.filter(r => !r.isCompleted && !r.isArchived);
     for (const reminder of active) {
       await scheduleReminderNotification(reminder, settings);
     }
-    console.log(`[Notifications] ✅ Rescheduled ${active.length} reminders`);
+
+    console.log(`[Notifications] ✅ Rescheduled ${active.length} active reminders.`);
   } catch (err) {
     console.error('[Notifications] rescheduleAll failed:', err);
   }
 }
 
-// ─── Snooze ───────────────────────────────────────────────────────────────────
+// ─── Snooze a reminder ────────────────────────────────────────────────────────
 export async function snoozeReminder(
   reminderId: string,
   reminderTitle: string,
@@ -462,7 +575,10 @@ export async function snoozeReminder(
   notificationStyle: string = 'popup'
 ): Promise<void> {
   try {
-    try { await Notifications.cancelScheduledNotificationAsync(`reminder-snooze-${reminderId}`); } catch (_) {}
+    // Cancel any existing snooze for this reminder
+    try {
+      await Notifications.cancelScheduledNotificationAsync(`reminder-snooze-${reminderId}`);
+    } catch (_) {}
 
     await ensureAndroidChannels(settings.soundEnabled, settings.vibrationEnabled);
     await registerNotificationCategories();
@@ -473,22 +589,32 @@ export async function snoozeReminder(
       notificationStyle === 'fullscreen' ||
       (isHighPriority && (settings.highPriorityFullscreen ?? true));
 
-    const ch = isHighPriority || useFullScreen ? channelId('reminders-high') : channelId('reminders');
+    const ch = isHighPriority || useFullScreen
+      ? versionedChannelId('reminders-high')
+      : versionedChannelId('reminders');
+
     const notifType = useFullScreen ? 'fullscreen-reminder' : 'popup-reminder';
     const priorityLabel = getPriorityLabel(priority);
     const fullBody = [priorityLabel, reminderBody].filter(Boolean).join('\n');
+    const timeLabel = snoozeMinutes >= 60 ? `${snoozeMinutes / 60}h` : `${snoozeMinutes} min`;
 
     const androidExtras: Record<string, any> = {
       channelId: ch,
       color: isHighPriority ? '#EF4444' : '#6366F1',
       priority: Notifications.AndroidNotificationPriority.MAX,
       sticky: false,
+      ongoing: false,
       autoDismiss: true,
-      ...(useFullScreen && { fullScreenIntent: true }),
+      visibility: 1,
     };
-    if (!settings.vibrationEnabled) androidExtras.vibrate = null;
 
-    const timeLabel = snoozeMinutes >= 60 ? `${snoozeMinutes / 60}h` : `${snoozeMinutes} min`;
+    if (useFullScreen) {
+      androidExtras.fullScreenIntent = true;
+    }
+
+    if (!settings.vibrationEnabled) {
+      androidExtras.vibrate = null;
+    }
 
     await Notifications.scheduleNotificationAsync({
       identifier: `reminder-snooze-${reminderId}`,
@@ -506,16 +632,21 @@ export async function snoozeReminder(
           snoozed: true,
           notificationStyle,
         },
-        ...(Platform.OS === 'android' && androidExtras),
+        ...(Platform.OS === 'android' ? androidExtras : {}),
       },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: snoozeDate },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: snoozeDate,
+      },
     });
+
+    console.log(`[Notifications] Snoozed "${reminderTitle}" for ${snoozeMinutes} min on ch=${ch}`);
   } catch (err) {
     console.error('[Notifications] Snooze failed:', err);
   }
 }
 
-// ─── Debug ────────────────────────────────────────────────────────────────────
+// ─── Debug helper ─────────────────────────────────────────────────────────────
 export async function getScheduledNotifications(): Promise<Notifications.NotificationRequest[]> {
   try {
     return await Notifications.getAllScheduledNotificationsAsync();

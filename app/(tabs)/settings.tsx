@@ -34,6 +34,7 @@ import {
 } from '../../services/notifications';
 import {
   promptBatteryOptimization,
+  promptFullScreenIntent,
   openExactAlarmSettings,
   checkNotificationPermission,
 } from '../../services/permissions';
@@ -676,11 +677,25 @@ export default function SettingsScreen() {
             colors={colors}
           />
           <Divider colors={colors} />
+          <Divider colors={colors} />
           <PressRow
             icon="alarm-on"
             label="Exact Alarm Permission"
             value="Open Settings"
             onPress={() => openExactAlarmSettings()}
+            colors={colors}
+          />
+          <Divider colors={colors} />
+          <PressRow
+            icon="fullscreen"
+            label="Full-Screen Alarm Permission"
+            value="Android 14+ Required"
+            onPress={() =>
+              promptFullScreenIntent(
+                () => showAlert('Done', 'Grant the permission on the settings screen that opened.'),
+                () => {}
+              )
+            }
             colors={colors}
           />
         </View>

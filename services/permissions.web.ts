@@ -23,6 +23,8 @@ export async function checkExactAlarmPermission(): Promise<boolean> {
 
 export async function openExactAlarmSettings(): Promise<void> {}
 
+export async function openFullScreenIntentSettings(): Promise<void> {}
+
 export async function requestIgnoreBatteryOptimization(): Promise<void> {}
 
 export function isBatteryOptimizationCheckSupported(): boolean {
@@ -39,3 +41,10 @@ export function promptBatteryOptimization(
   _onConfirm: () => void,
   _onDismiss?: () => void
 ): void {}
+
+export function promptFullScreenIntent(
+  onConfirm: () => void,
+  _onDismiss?: () => void
+): void {
+  onConfirm();
+}
