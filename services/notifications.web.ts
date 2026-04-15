@@ -61,6 +61,6 @@ export async function snoozeReminder(
   _notificationStyle?: string
 ): Promise<void> {}
 
-export async function getScheduledNotifications(): Promise<any[]> {
-  return [];
-}
+export function getPopupChannelId(): string { return 'reminders_v1'; }
+export function getAlarmChannelId(): string { return 'reminders-high_v1'; }
+export async function scheduleTestNotification(_settings: any): Promise<void> {}

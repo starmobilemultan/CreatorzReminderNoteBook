@@ -8,7 +8,6 @@ import {
   Switch,
   Modal,
   ActivityIndicator,
-  Platform,
   TouchableWithoutFeedback,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,15 +21,14 @@ import { COLORS, SPACING, TYPOGRAPHY, RADIUS } from '../../constants/theme';
 import { useSettings } from '../../hooks/useSettings';
 import { useReminders } from '../../hooks/useReminders';
 import { useAlert } from '@/template';
-import * as Notifications from 'expo-notifications';
 import {
   requestNotificationPermissions,
   rescheduleAllNotifications,
   getScheduledNotifications,
   registerNotificationCategories,
-  NOTIFICATION_CATEGORY_REMINDER,
   ensureAndroidChannels,
   setChannelVersion,
+  scheduleTestNotification,
 } from '../../services/notifications';
 import {
   promptBatteryOptimization,
@@ -350,51 +348,23 @@ export default function SettingsScreen() {
   };
 
   // ── Test notification ─────────────────────────────────────────────────────
+  // FIXED: Previously used hardcoded non-versioned channelId ('reminders-high')
+  // which doesn't exist on device — Android silently drops notifications sent
+  // to unknown channels. Now uses scheduleTestNotification() which resolves
+  // the correct versioned channel ID (e.g. reminders_v1, reminders-high_v1).
   const sendTestNotification = async () => {
-    const granted = await requestNotificationPermissions();
+    const granted = await requestNotificationPermissions(
+      settings.soundEnabled,
+      settings.vibrationEnabled
+    );
     if (!granted) {
       showAlert('Permission Denied', 'Please enable notifications in device settings to test.');
       return;
     }
-    await registerNotificationCategories();
-    const isFullScreen = settings.notificationStyle === 'fullscreen';
-    const isPopup = settings.notificationStyle === 'popup';
-    const notifType = isFullScreen ? 'fullscreen-reminder' : isPopup ? 'popup-reminder' : 'banner-reminder';
-    const androidExtras: Record<string, any> = {
-      channelId: 'reminders-high',
-      color: '#6366F1',
-      priority: Notifications.AndroidNotificationPriority.MAX,
-      ...(isFullScreen && { fullScreenIntent: true }),
-    };
-    if (settings.vibrationEnabled) androidExtras.vibrate = [0, 400, 200, 400];
-    else androidExtras.vibrate = null;
-
-    await Notifications.scheduleNotificationAsync({
-      identifier: 'test-notification',
-      content: {
-        title: '🔔 Test Reminder',
-        body: '🟣 MEDIUM PRIORITY\nThis is a test notification!',
-        categoryIdentifier: NOTIFICATION_CATEGORY_REMINDER,
-        sound: settings.soundEnabled ? 'default' : undefined,
-        data: {
-          reminderId: 'test',
-          reminderTitle: 'Test Reminder',
-          reminderBody: 'This is a test notification!',
-          type: notifType,
-          priority: 'medium',
-          notificationStyle: settings.notificationStyle,
-        },
-        ...(Platform.OS === 'android' && androidExtras),
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: new Date(Date.now() + 5000),
-      },
-    });
-
+    await scheduleTestNotification(settings);
     showAlert(
       'Test Sent',
-      `A "${notificationStyleLabel}" notification arrives in 5 seconds.\nPut the app in background to see it.\nSound: ${settings.soundEnabled ? 'On' : 'Off'} · Vibration: ${settings.vibrationEnabled ? 'On' : 'Off'}`
+      `A "${notificationStyleLabel}" notification fires in 5 seconds.\nBackground the app now to see the banner.\nSound: ${settings.soundEnabled ? 'On' : 'Off'} · Vibration: ${settings.vibrationEnabled ? 'On' : 'Off'}`
     );
   };
 

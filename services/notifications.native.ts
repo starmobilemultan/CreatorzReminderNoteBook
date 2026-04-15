@@ -54,6 +54,15 @@ function versionedChannelId(base: string): string {
   return `${base}_v${_channelVersion}`;
 }
 
+/** Expose the current versioned channel IDs so callers can build correct notifications */
+export function getPopupChannelId(): string {
+  return versionedChannelId('reminders');
+}
+
+export function getAlarmChannelId(): string {
+  return versionedChannelId('reminders-high');
+}
+
 // ─── Foreground notification handler ─────────────────────────────────────────
 // When app is in foreground:
 //   - fullscreen: show at MAX priority (AlarmModal will render)
@@ -646,4 +655,63 @@ export async function getScheduledNotifications(): Promise<Notifications.Notific
   } catch {
     return [];
   }
+}
+
+// ─── Test notification ────────────────────────────────────────────────────────
+/**
+ * Schedules a test notification in 5 seconds using the CORRECT versioned channel.
+ * Uses the popup channel (HIGH importance) for popup/banner styles so the user
+ * sees a real heads-up banner, and the alarm channel (MAX) for fullscreen.
+ */
+export async function scheduleTestNotification(
+  settings: AppSettings
+): Promise<void> {
+  await ensureAndroidChannels(settings.soundEnabled, settings.vibrationEnabled);
+  await registerNotificationCategories();
+
+  const isFullScreen = settings.notificationStyle === 'fullscreen';
+  const notifType = isFullScreen ? 'fullscreen-reminder' : 'popup-reminder';
+
+  // Use the correct versioned channel — this is the key fix
+  const ch = isFullScreen ? versionedChannelId('reminders-high') : versionedChannelId('reminders');
+
+  const androidExtras: Record<string, any> = {
+    channelId: ch, // ← VERSIONED — matches the actual channel on device
+    color: isFullScreen ? '#EF4444' : '#6366F1',
+    priority: isFullScreen
+      ? Notifications.AndroidNotificationPriority.MAX
+      : Notifications.AndroidNotificationPriority.HIGH,
+    sticky: false,
+    autoDismiss: true,
+    visibility: 1,
+  };
+
+  if (isFullScreen) {
+    androidExtras.fullScreenIntent = true;
+    androidExtras.vibrate = settings.vibrationEnabled ? [0, 500, 300, 500, 300, 500] : null;
+  } else {
+    androidExtras.vibrate = settings.vibrationEnabled ? [0, 300, 200, 300] : null;
+  }
+
+  await Notifications.scheduleNotificationAsync({
+    identifier: 'test-notification-' + Date.now(),
+    content: {
+      title: '🔔 Test Reminder',
+      body: '🟡 MEDIUM PRIORITY\nThis is a test — your notifications are working!',
+      sound: settings.soundEnabled ? 'default' : undefined,
+      data: {
+        reminderId: 'test-' + Date.now(),
+        reminderTitle: 'Test Reminder',
+        reminderBody: 'This is a test notification!',
+        type: notifType,
+        priority: 'medium',
+        notificationStyle: settings.notificationStyle,
+      },
+      ...(Platform.OS === 'android' ? androidExtras : {}),
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: new Date(Date.now() + 5000),
+    },
+  });
 }
