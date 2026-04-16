@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   TouchableWithoutFeedback,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -422,8 +423,12 @@ export default function SettingsScreen() {
           style={styles.headerGradientLine}
         />
         <View style={styles.headerBrandRow}>
-          <View style={[styles.headerIconWrap, { backgroundColor: colors.primary + '18' }]}>
-            <MaterialIcons name="auto-awesome" size={20} color={colors.primary} />
+          <View style={styles.headerLogoWrap}>
+            <Image
+              source={require('../../assets/images/logo.png')}
+              style={styles.headerLogoImg}
+              contentFit="contain"
+            />
           </View>
           <View style={{ flex: 1 }}>
             <LinearGradient
@@ -941,13 +946,18 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
     marginBottom: SPACING.xs,
   },
-  headerIconWrap: {
-    width: 38,
-    height: 38,
+  headerLogoWrap: {
+    width: 44,
+    height: 44,
     borderRadius: RADIUS.md,
+    overflow: 'hidden',
+    flexShrink: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    flexShrink: 0,
+  },
+  headerLogoImg: {
+    width: 44,
+    height: 44,
   },
   headerAppNameGradient: {
     borderRadius: 4,

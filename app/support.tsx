@@ -27,51 +27,53 @@ const PROFILE_IMAGE = require('../assets/images/moiz-profile.jpg');
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface PaymentMethod {
   id: string;
-  icon: string;
+  logoSource: any;
   title: string;
   subtitle: string;
+  bankName?: string;        // shown on front face below subtitle
   detail: string;
   detailLabel: string;
   accountName?: string;
   gradientColors: [string, string, string];
   accentColor: string;
-  emoji: string;
+  logoStyle?: 'contain' | 'cover';
 }
 
 const PAYMENT_METHODS: PaymentMethod[] = [
   {
     id: 'easypaisa',
-    icon: 'phone-android',
+    logoSource: require('../assets/images/easypaisa-logo.png'),
     title: 'Easypaisa',
     subtitle: 'Mobile Wallet',
+    bankName: 'Bank Transfer: EasyPaisa Bank Limited',
     detail: '03481040494',
     detailLabel: 'Account Number',
     accountName: 'Abdul Moiz Qureshi',
     gradientColors: ['#00A651', '#007A3D', '#005C2E'],
     accentColor: '#00C96B',
-    emoji: '☕',
+    logoStyle: 'contain',
   },
   {
     id: 'paypal',
-    icon: 'account-balance-wallet',
+    logoSource: require('../assets/images/paypal-logo.png'),
     title: 'PayPal',
     subtitle: 'International Transfer',
     detail: 'ansari.ayub7590@gmail.com',
     detailLabel: 'PayPal Email',
     gradientColors: ['#003087', '#0070BA', '#009CDE'],
     accentColor: '#00C2FF',
-    emoji: '💳',
+    logoStyle: 'contain',
   },
   {
     id: 'binance',
-    icon: 'currency-bitcoin',
+    logoSource: require('../assets/images/binance-logo.png'),
     title: 'Binance USDT',
     subtitle: 'Crypto Transfer',
     detail: 'moizqureshiii36@gmail.com',
     detailLabel: 'Binance ID',
     gradientColors: ['#181A1E', '#2B2F36', '#F0B90B'],
     accentColor: '#F0B90B',
-    emoji: '🪙',
+    logoStyle: 'contain',
   },
 ];
 
@@ -217,10 +219,13 @@ const coffeeStyles = StyleSheet.create({
   steamLine: { width: 3, height: 18, backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: 2 },
 });
 
-// ─── Fixed card height (front & back must fit inside) ────────────────────────
-const CARD_HEIGHT = 200;
+// ─── Fixed card height ────────────────────────────────────────────────────────
+const CARD_HEIGHT = 210;
 
 // ─── Payment Card with Flip Animation ────────────────────────────────────────
+// FRONT: shows method name, logo, subtitle, bankName (for easypaisa), flip hint
+//        NO credentials shown — only flip to see details
+// BACK:  shows credential label, value, account name, copy & share buttons
 function PaymentCard({
   method,
   isFlipped,
@@ -249,11 +254,11 @@ function PaymentCard({
     }).start();
   }, [isFlipped]);
 
-  // Front: 0→90deg, fully hidden by 90deg
+  // Front: 0→90deg hidden at midpoint
   const frontRotate = flipAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: ['0deg', '90deg', '90deg'] });
-  // Back: starts at -90deg, comes to 0 after midpoint
+  // Back: starts hidden at -90deg, visible after midpoint
   const backRotate = flipAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: ['-90deg', '-90deg', '0deg'] });
-  // Hard cut: front visible before midpoint, back after
+  // Hard visibility cut at midpoint
   const frontOpacity = flipAnim.interpolate({ inputRange: [0, 0.49, 0.5, 1], outputRange: [1, 1, 0, 0] });
   const backOpacity = flipAnim.interpolate({ inputRange: [0, 0.49, 0.5, 1], outputRange: [0, 0, 1, 1] });
 
@@ -261,14 +266,13 @@ function PaymentCard({
 
   return (
     <View style={cardStyles.wrapper}>
-      {/* ── Outer shell: shadow + border, fixed height ── */}
       <View
         style={[
           cardStyles.shell,
           isFlipped && { borderColor: method.accentColor, borderWidth: 2 },
         ]}
       >
-        {/* ── Front face ── */}
+        {/* ════ FRONT FACE — Identity only, NO credentials ════ */}
         <Animated.View
           style={[
             cardStyles.face,
@@ -282,16 +286,27 @@ function PaymentCard({
               end={{ x: 1, y: 1 }}
               style={cardStyles.faceInner}
             >
-              {/* Top row: icon + text */}
+              {/* Logo + title row */}
               <View style={cardStyles.frontTopRow}>
-                <View style={[cardStyles.iconBubble, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
-                  <Text style={{ fontSize: 28 }}>{method.emoji}</Text>
+                {/* Logo image instead of icon/emoji */}
+                <View style={cardStyles.logoBubble}>
+                  <Image
+                    source={method.logoSource}
+                    style={cardStyles.logoImage}
+                    contentFit={method.logoStyle ?? 'contain'}
+                  />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={cardStyles.methodTitle}>{method.title}</Text>
                   <Text style={cardStyles.methodSubtitle}>{method.subtitle}</Text>
+                  {/* Bank name — only shown on front for EasyPaisa */}
+                  {method.bankName ? (
+                    <Text style={cardStyles.bankNameText} numberOfLines={2}>
+                      {method.bankName}
+                    </Text>
+                  ) : null}
                 </View>
-                {/* Flip hint badge */}
+                {/* Flip hint */}
                 <View style={[cardStyles.flipHintBadge, { backgroundColor: 'rgba(255,255,255,0.12)' }]}>
                   <MaterialIcons name="flip" size={13} color="rgba(255,255,255,0.7)" />
                   <Text style={cardStyles.flipHintText}>Flip</Text>
@@ -301,36 +316,19 @@ function PaymentCard({
               {/* Divider */}
               <View style={cardStyles.dividerLine} />
 
-              {/* Bottom: credential preview + copy */}
-              <View style={cardStyles.frontBottomRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={cardStyles.credLabel}>{method.detailLabel}</Text>
-                  <Text style={cardStyles.credValue} numberOfLines={1}>{method.detail}</Text>
-                </View>
-                <Pressable
-                  onPress={() => onCopy(method.detail, method.id)}
-                  hitSlop={10}
-                  style={({ pressed }) => [
-                    cardStyles.copyPill,
-                    {
-                      backgroundColor: isCopied ? '#10B981' : 'rgba(255,255,255,0.18)',
-                      opacity: pressed ? 0.7 : 1,
-                    },
-                  ]}
-                >
-                  <MaterialIcons
-                    name={isCopied ? 'check' : 'content-copy'}
-                    size={14}
-                    color="#fff"
-                  />
-                  <Text style={cardStyles.copyPillText}>{isCopied ? 'Copied!' : 'Copy'}</Text>
-                </Pressable>
+              {/* Bottom CTA — tap to reveal credentials */}
+              <View style={cardStyles.frontRevealRow}>
+                <MaterialIcons name="lock" size={15} color="rgba(255,255,255,0.55)" />
+                <Text style={cardStyles.revealText}>
+                  Tap card to flip &amp; reveal payment details
+                </Text>
+                <MaterialIcons name="chevron-right" size={18} color="rgba(255,255,255,0.5)" />
               </View>
             </LinearGradient>
           </Pressable>
         </Animated.View>
 
-        {/* ── Back face ── */}
+        {/* ════ BACK FACE — Full credentials ════ */}
         <Animated.View
           style={[
             cardStyles.face,
@@ -345,9 +343,15 @@ function PaymentCard({
               end={{ x: 1, y: 1 }}
               style={cardStyles.faceInner}
             >
-              {/* Back header */}
+              {/* Back header with logo */}
               <View style={cardStyles.backTopRow}>
-                <Text style={{ fontSize: 18 }}>{method.emoji}</Text>
+                <View style={cardStyles.logoBubbleSmall}>
+                  <Image
+                    source={method.logoSource}
+                    style={cardStyles.logoImageSmall}
+                    contentFit={method.logoStyle ?? 'contain'}
+                  />
+                </View>
                 <Text style={cardStyles.backTitle}>{method.title}</Text>
                 <View style={[cardStyles.flipHintBadge, { backgroundColor: 'rgba(255,255,255,0.12)', marginLeft: 'auto' }]}>
                   <MaterialIcons name="flip" size={13} color="rgba(255,255,255,0.7)" />
@@ -355,7 +359,7 @@ function PaymentCard({
                 </View>
               </View>
 
-              {/* Detail box */}
+              {/* Detail box — credentials revealed after flip */}
               <View style={cardStyles.detailBox}>
                 <Text style={cardStyles.detailLabel}>{method.detailLabel}</Text>
                 <Text style={cardStyles.detailValue} selectable numberOfLines={1}>{method.detail}</Text>
@@ -403,7 +407,6 @@ const cardStyles = StyleSheet.create({
   wrapper: {
     marginBottom: SPACING.md,
   },
-  // Outer shell: provides shadow, border, fixed height, clips content
   shell: {
     height: CARD_HEIGHT,
     borderRadius: RADIUS.xl,
@@ -415,17 +418,14 @@ const cardStyles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
-  // Both faces absolutely fill the shell
   face: {
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
   },
   backFaceAbsolute: {
-    // same as face, explicit for clarity
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
   },
-  // Gradient fills the face completely
   faceInner: {
     flex: 1,
     padding: SPACING.md,
@@ -434,12 +434,22 @@ const cardStyles = StyleSheet.create({
   // Front
   frontTopRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: SPACING.sm,
   },
-  iconBubble: {
-    width: 54, height: 54, borderRadius: 27,
-    justifyContent: 'center', alignItems: 'center', flexShrink: 0,
+  logoBubble: {
+    width: 58,
+    height: 58,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  logoImage: {
+    width: 54,
+    height: 54,
   },
   methodTitle: {
     fontSize: TYPOGRAPHY.sizes.lg,
@@ -452,6 +462,13 @@ const cardStyles = StyleSheet.create({
     color: 'rgba(255,255,255,0.65)',
     marginTop: 2,
   },
+  bankNameText: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 4,
+    fontWeight: '600',
+    lineHeight: 14,
+  },
   flipHintBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -460,6 +477,7 @@ const cardStyles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: RADIUS.full,
     flexShrink: 0,
+    marginTop: 2,
   },
   flipHintText: {
     fontSize: 10,
@@ -469,46 +487,38 @@ const cardStyles = StyleSheet.create({
   dividerLine: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.15)',
-    marginVertical: 2,
   },
-  frontBottomRow: {
+  // Front bottom CTA (replaces credential preview)
+  frontRevealRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.sm,
+    gap: SPACING.xs,
   },
-  credLabel: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.55)',
-    fontWeight: '600',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-    marginBottom: 2,
-  },
-  credValue: {
-    fontSize: TYPOGRAPHY.sizes.sm,
-    color: '#fff',
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  copyPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: RADIUS.full,
-    flexShrink: 0,
-  },
-  copyPillText: {
-    color: '#fff',
+  revealText: {
+    flex: 1,
     fontSize: TYPOGRAPHY.sizes.xs,
-    fontWeight: '700',
+    color: 'rgba(255,255,255,0.55)',
+    fontStyle: 'italic',
   },
   // Back
   backTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
+  },
+  logoBubbleSmall: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  logoImageSmall: {
+    width: 32,
+    height: 32,
   },
   backTitle: {
     fontSize: TYPOGRAPHY.sizes.md,
@@ -716,7 +726,6 @@ export default function SupportScreen() {
   const { currentTheme } = useSettings();
   const colors = COLORS[currentTheme];
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [flippedId, setFlippedId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -748,10 +757,8 @@ export default function SupportScreen() {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     }
-    const isCurrentlyFlipped = flippedId === id;
-    setSelectedId(id);
-    setFlippedId(isCurrentlyFlipped ? null : id);
-  }, [flippedId]);
+    setFlippedId(prev => (prev === id ? null : id));
+  }, []);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -760,7 +767,6 @@ export default function SupportScreen() {
     toastTimerRef.current = setTimeout(() => setToastVisible(false), 2500);
   }, []);
 
-  // Copy credential — used from both front copy pill and back copy button
   const handleCopy = useCallback(async (detail: string, id: string) => {
     try {
       if (Platform.OS !== 'web') {
@@ -785,7 +791,7 @@ export default function SupportScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       }
       await Share.share({
-        message: `Support Moiz Creator via ${method.title}\n${method.detailLabel}: ${method.detail}${method.accountName ? `\nAccount: ${method.accountName}` : ''}\n\n☕ Buy Me a Coffee — powered by Moiz Creator`,
+        message: `Support Moiz Creator via ${method.title}\n${method.detailLabel}: ${method.detail}${method.accountName ? `\nAccount: ${method.accountName}` : ''}${method.bankName ? `\n${method.bankName}` : ''}\n\n☕ Buy Me a Coffee — powered by Moiz Creator`,
         title: `Support via ${method.title}`,
       });
     } catch {}
@@ -837,7 +843,6 @@ export default function SupportScreen() {
         {/* ── Profile Card ──────────────────────────────────────────────── */}
         <View style={[styles.profileCard, { backgroundColor: colors.surface }]}>
           <View style={styles.profileAvatarRow}>
-            {/* Real profile photo */}
             <View style={styles.avatarImageWrap}>
               <Image
                 source={PROFILE_IMAGE}
@@ -872,7 +877,7 @@ export default function SupportScreen() {
             </View>
           </View>
 
-          {/* WhatsApp — tap row to open chat, copy button on right */}
+          {/* WhatsApp */}
           <Pressable
             onPress={handleWhatsApp}
             style={({ pressed }) => [
@@ -913,7 +918,7 @@ export default function SupportScreen() {
           </View>
         </View>
 
-        {/* ── Section: Pick Payment ─────────────────────────────────────── */}
+        {/* ── Section header ────────────────────────────────────────────── */}
         <View style={styles.sectionHeader}>
           <View style={[styles.sectionLine, { backgroundColor: colors.primary }]} />
           <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
@@ -923,7 +928,7 @@ export default function SupportScreen() {
         </View>
 
         <Text style={[styles.sectionHint, { color: colors.textTertiary }]}>
-          Tap copy icon to copy · Tap card to flip for full details
+          Tap card to flip · Payment details revealed after flip
         </Text>
 
         {/* ── Payment Cards ─────────────────────────────────────────────── */}
@@ -997,8 +1002,6 @@ export default function SupportScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-
-  // Header
   headerBg: { paddingBottom: 36, alignItems: 'center' },
   backBtn: {
     position: 'absolute',
@@ -1025,11 +1028,7 @@ const styles = StyleSheet.create({
   },
   headerSub: { fontSize: TYPOGRAPHY.sizes.md, color: 'rgba(255,255,255,0.75)', textAlign: 'center', marginTop: 4 },
   headerWave: { position: 'absolute', bottom: -1, left: 0, right: 0, height: 32, backgroundColor: 'transparent' },
-
-  // Scroll
   scrollContent: { paddingHorizontal: SPACING.md, paddingTop: SPACING.lg, gap: SPACING.md },
-
-  // Profile card
   profileCard: {
     borderRadius: RADIUS.xl,
     padding: SPACING.md,
@@ -1059,8 +1058,6 @@ const styles = StyleSheet.create({
   servicesList: { gap: 8 },
   serviceItem: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   serviceText: { fontSize: TYPOGRAPHY.sizes.sm, fontWeight: '500' },
-
-  // WhatsApp row (pressable)
   whatsappRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1075,20 +1072,13 @@ const styles = StyleSheet.create({
   whatsappNumber: { fontSize: TYPOGRAPHY.sizes.sm, fontWeight: '600', marginTop: 1 },
   whatsappCopyBtn: { width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
   whatsappOpenBtn: { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
-
   taglineWrap: { borderLeftWidth: 3, paddingLeft: SPACING.md },
   taglineText: { fontSize: TYPOGRAPHY.sizes.sm, fontStyle: 'italic', lineHeight: 20 },
-
-  // Section header
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginTop: SPACING.sm },
   sectionLine: { flex: 1, height: 1, opacity: 0.35 },
   sectionTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8 },
   sectionHint: { fontSize: TYPOGRAPHY.sizes.xs, textAlign: 'center', marginTop: -SPACING.xs },
-
-  // Cards
   cardsWrap: { gap: 0 },
-
-  // Thank you button
   thankYouBtn: {
     borderRadius: RADIUS.xl,
     overflow: 'hidden',
@@ -1107,8 +1097,6 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.md + 2,
   },
   thankYouBtnText: { color: '#fff', fontSize: TYPOGRAPHY.sizes.lg, fontWeight: '800', letterSpacing: -0.3 },
-
-  // Footer
   footer: { alignItems: 'center', gap: SPACING.sm, marginTop: SPACING.md, paddingBottom: SPACING.sm },
   footerLine: { height: 1, width: '80%' },
   footerText: { fontSize: TYPOGRAPHY.sizes.xs, fontStyle: 'italic', letterSpacing: 0.3 },

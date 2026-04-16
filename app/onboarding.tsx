@@ -42,90 +42,97 @@ const slides = [
 // ── Animated brand title component ───────────────────────────────────────────
 function BrandTitle({ colors }: { colors: any }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(18)).current;
-  const glowAnim = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(24)).current;
   const subtitleFade = useRef(new Animated.Value(0)).current;
+  const logoScale = useRef(new Animated.Value(0.7)).current;
+  const logoOpacity = useRef(new Animated.Value(0)).current;
+  const shimmerAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Main title: fade + slide up
+    // Logo entrance
     Animated.sequence([
-      Animated.delay(200),
+      Animated.delay(100),
       Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 700,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateY, {
-          toValue: 0,
-          duration: 700,
-          useNativeDriver: true,
-        }),
+        Animated.spring(logoScale, { toValue: 1, tension: 130, friction: 8, useNativeDriver: true }),
+        Animated.timing(logoOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
       ]),
     ]).start();
 
-    // Subtitle fade in after title
+    // Title slide up
     Animated.sequence([
-      Animated.delay(800),
-      Animated.timing(subtitleFade, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
+      Animated.delay(350),
+      Animated.parallel([
+        Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: 0, duration: 600, useNativeDriver: true }),
+      ]),
     ]).start();
 
-    // Pulsing glow loop
+    // Subtitle
+    Animated.sequence([
+      Animated.delay(900),
+      Animated.timing(subtitleFade, { toValue: 1, duration: 500, useNativeDriver: true }),
+    ]).start();
+
+    // Continuous shimmer loop on app name
     Animated.loop(
       Animated.sequence([
-        Animated.timing(glowAnim, { toValue: 1, duration: 1800, useNativeDriver: true }),
-        Animated.timing(glowAnim, { toValue: 0, duration: 1800, useNativeDriver: true }),
+        Animated.timing(shimmerAnim, { toValue: 1, duration: 2200, useNativeDriver: true }),
+        Animated.timing(shimmerAnim, { toValue: 0, duration: 2200, useNativeDriver: true }),
       ])
     ).start();
   }, []);
 
-  const glowOpacity = glowAnim.interpolate({ inputRange: [0, 1], outputRange: [0.55, 1] });
+  const letterSpacing = shimmerAnim.interpolate({ inputRange: [0, 1], outputRange: [-1.5, 0.5] });
 
   return (
     <View style={brandStyles.wrap}>
-      {/* Glow backdrop */}
-      <Animated.View
-        style={[brandStyles.glowBg, { opacity: glowOpacity }]}
-      >
-        <LinearGradient
-          colors={['#6366F133', '#818CF866', '#6366F133']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={brandStyles.glowGradient}
+      {/* App logo — no background box */}
+      <Animated.View style={{ transform: [{ scale: logoScale }], opacity: logoOpacity }}>
+        <Image
+          source={require('../assets/images/logo.png')}
+          style={brandStyles.logoImg}
+          contentFit="contain"
         />
       </Animated.View>
 
-      {/* App name */}
-      <Animated.View
-        style={{
-          opacity: fadeAnim,
-          transform: [{ translateY }],
-        }}
-      >
-        <LinearGradient
-          colors={['#818CF8', '#6366F1', '#A855F7']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={brandStyles.titleGradientWrap}
-        >
-          <Text style={brandStyles.appName}>Creatorz</Text>
-        </LinearGradient>
-        <Text style={[brandStyles.appSubName, { color: colors.text }]}>
-          Reminder & Notes
-        </Text>
+      {/* App name — gradient text via masked approach */}
+      <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY }], alignItems: 'center' }}>
+        {/* "Creatorz" — large gradient letters */}
+        <View style={brandStyles.appNameRow}>
+          {['C','r','e','a','t','o','r','z'].map((letter, i) => {
+            const gradientColors: [string, string] =
+              i < 3 ? ['#818CF8', '#6366F1'] :
+              i < 6 ? ['#6366F1', '#A855F7'] :
+                      ['#A855F7', '#EC4899'];
+            return (
+              <LinearGradient
+                key={i}
+                colors={gradientColors}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0, y: 1 }}
+                style={brandStyles.letterGradient}
+              >
+                <Text style={brandStyles.appNameLetter}>{letter}</Text>
+              </LinearGradient>
+            );
+          })}
+        </View>
+
+        {/* Subtitle row */}
+        <View style={brandStyles.subtitleRow}>
+          <View style={[brandStyles.subtitleDot, { backgroundColor: '#6366F1' }]} />
+          <Text style={[brandStyles.appSubName, { color: colors.textSecondary }]}>
+            Reminder {'&'} Notes
+          </Text>
+          <View style={[brandStyles.subtitleDot, { backgroundColor: '#A855F7' }]} />
+        </View>
       </Animated.View>
 
-      {/* Tagline */}
-      <Animated.Text style={[brandStyles.tagline, { color: colors.textSecondary, opacity: subtitleFade }]}>
-        Your productivity, beautifully organized
-      </Animated.Text>
-
-      {/* Decorative line */}
-      <Animated.View style={{ opacity: subtitleFade, alignItems: 'center' }}>
+      {/* Tagline + decorative line */}
+      <Animated.View style={{ opacity: subtitleFade, alignItems: 'center', gap: SPACING.sm }}>
+        <Text style={[brandStyles.tagline, { color: colors.textTertiary }]}>
+          Your productivity, beautifully organized
+        </Text>
         <LinearGradient
           colors={['transparent', '#6366F1', '#A855F7', 'transparent']}
           start={{ x: 0, y: 0 }}
@@ -140,36 +147,46 @@ function BrandTitle({ colors }: { colors: any }) {
 const brandStyles = StyleSheet.create({
   wrap: {
     alignItems: 'center',
-    gap: SPACING.sm,
+    gap: SPACING.md,
     paddingVertical: SPACING.lg,
   },
-  glowBg: {
-    position: 'absolute',
-    width: 280,
-    height: 120,
-    borderRadius: 60,
-    top: 0,
-    alignSelf: 'center',
-    overflow: 'hidden',
+  logoImg: {
+    width: 100,
+    height: 100,
   },
-  glowGradient: { flex: 1 },
-  titleGradientWrap: {
-    borderRadius: RADIUS.sm,
-    paddingHorizontal: 4,
+  appNameRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 1,
+    marginBottom: SPACING.xs,
   },
-  appName: {
-    fontSize: 44,
-    fontWeight: '800',
-    letterSpacing: -1.5,
+  letterGradient: {
+    borderRadius: 4,
+    paddingHorizontal: 1,
+  },
+  appNameLetter: {
+    fontSize: 48,
+    fontWeight: '900',
     color: '#fff',
-    textAlign: 'center',
+    letterSpacing: -1,
+    includeFontPadding: false,
+  },
+  subtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  subtitleDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    opacity: 0.7,
   },
   appSubName: {
-    fontSize: TYPOGRAPHY.sizes.xl,
+    fontSize: TYPOGRAPHY.sizes.lg,
     fontWeight: '600',
     textAlign: 'center',
-    letterSpacing: 0.5,
-    marginTop: 2,
+    letterSpacing: 0.8,
   },
   tagline: {
     fontSize: TYPOGRAPHY.sizes.sm,
@@ -180,9 +197,8 @@ const brandStyles = StyleSheet.create({
   },
   dividerLine: {
     height: 2,
-    width: 160,
+    width: 200,
     borderRadius: 1,
-    marginTop: SPACING.xs,
   },
 });
 
