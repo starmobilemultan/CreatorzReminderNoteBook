@@ -45,61 +45,37 @@ const slides = [
   },
 ];
 
-// ── Animated brand title component ───────────────────────────────────────────
+// ── Brand title component (no entrance animation on logo) ────────────────────
 function BrandTitle({ colors }: { colors: any }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(24)).current;
+  const translateY = useRef(new Animated.Value(20)).current;
   const subtitleFade = useRef(new Animated.Value(0)).current;
-  const logoScale = useRef(new Animated.Value(0.7)).current;
-  const logoOpacity = useRef(new Animated.Value(0)).current;
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Logo entrance
-    Animated.sequence([
-      Animated.delay(100),
-      Animated.parallel([
-        Animated.spring(logoScale, { toValue: 1, tension: 130, friction: 8, useNativeDriver: true }),
-        Animated.timing(logoOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
-      ]),
-    ]).start();
-
     // Title slide up
     Animated.sequence([
-      Animated.delay(350),
+      Animated.delay(200),
       Animated.parallel([
-        Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-        Animated.timing(translateY, { toValue: 0, duration: 600, useNativeDriver: true }),
+        Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: 0, duration: 500, useNativeDriver: true }),
       ]),
     ]).start();
 
-    // Subtitle
+    // Subtitle fade in
     Animated.sequence([
-      Animated.delay(900),
-      Animated.timing(subtitleFade, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.delay(600),
+      Animated.timing(subtitleFade, { toValue: 1, duration: 400, useNativeDriver: true }),
     ]).start();
-
-    // Continuous shimmer loop on app name
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(shimmerAnim, { toValue: 1, duration: 2200, useNativeDriver: true }),
-        Animated.timing(shimmerAnim, { toValue: 0, duration: 2200, useNativeDriver: true }),
-      ])
-    ).start();
   }, []);
-
-  const letterSpacing = shimmerAnim.interpolate({ inputRange: [0, 1], outputRange: [-1.5, 0.5] });
 
   return (
     <View style={brandStyles.wrap}>
-      {/* App logo — no background box */}
-      <Animated.View style={{ transform: [{ scale: logoScale }], opacity: logoOpacity }}>
-        <Image
-          source={require('../assets/images/logo.png')}
-          style={brandStyles.logoImg}
-          contentFit="contain"
-        />
-      </Animated.View>
+      {/* App logo — static, no animation */}
+      <Image
+        source={require('../assets/images/logo.png')}
+        style={brandStyles.logoImg}
+        contentFit="contain"
+      />
 
       {/* App name — gradient text via masked approach */}
       <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY }], alignItems: 'center' }}>
@@ -154,11 +130,10 @@ const brandStyles = StyleSheet.create({
   wrap: {
     alignItems: 'center',
     gap: SPACING.md,
-    paddingVertical: SPACING.lg,
   },
   logoImg: {
-    width: 100,
-    height: 100,
+    width: 140,
+    height: 140,
   },
   appNameRow: {
     flexDirection: 'row',
@@ -260,9 +235,9 @@ export default function OnboardingScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.content, { paddingTop: insets.top + SPACING.md }]}>
 
-        {/* ── Brand slide: full-screen logo + animated name only ────────── */}
+        {/* ── Brand slide: centred logo + name ────────────────────────── */}
         {isBrandSlide ? (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: SPACING.lg }}>
             <BrandTitle colors={colors} />
           </View>
         ) : (

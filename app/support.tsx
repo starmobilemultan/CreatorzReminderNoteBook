@@ -220,7 +220,7 @@ const coffeeStyles = StyleSheet.create({
 });
 
 // ─── Fixed card height ────────────────────────────────────────────────────────
-const CARD_HEIGHT = 248;
+const CARD_HEIGHT = 178;
 
 // ─── Payment Card with Flip Animation ────────────────────────────────────────
 // FRONT: shows method name, logo, subtitle, bankName (for easypaisa), flip hint
@@ -261,8 +261,8 @@ function PaymentCard({
   // Hard visibility cut at midpoint
   const frontOpacity = flipAnim.interpolate({ inputRange: [0, 0.49, 0.5, 1], outputRange: [1, 1, 0, 0] });
   const backOpacity = flipAnim.interpolate({ inputRange: [0, 0.49, 0.5, 1], outputRange: [0, 0, 1, 1] });
-
   const isCopied = copiedId === method.id;
+
 
   return (
     <View style={cardStyles.wrapper}>
@@ -429,7 +429,8 @@ const cardStyles = StyleSheet.create({
   },
   faceInner: {
     flex: 1,
-    padding: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
     justifyContent: 'space-between',
   },
   // Front
@@ -438,18 +439,17 @@ const cardStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
-  // Large centered hero area on front face
+  // Compact hero row on front face
   frontCenter: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.md,
+    gap: SPACING.sm,
     flex: 1,
-    paddingVertical: SPACING.xs,
   },
   logoBubbleLarge: {
-    width: 76,
-    height: 76,
-    borderRadius: 20,
+    width: 52,
+    height: 52,
+    borderRadius: 14,
     overflow: 'hidden',
     backgroundColor: 'rgba(255,255,255,0.12)',
     justifyContent: 'center',
@@ -457,38 +457,37 @@ const cardStyles = StyleSheet.create({
     flexShrink: 0,
   },
   logoImageLarge: {
-    width: 70,
-    height: 70,
+    width: 46,
+    height: 46,
   },
   methodTitleLarge: {
-    fontSize: TYPOGRAPHY.sizes.xxl,
+    fontSize: TYPOGRAPHY.sizes.xl,
     fontWeight: '800',
     color: '#fff',
-    letterSpacing: -0.5,
-    lineHeight: 30,
+    letterSpacing: -0.4,
+    lineHeight: 24,
   },
   methodSubtitleLarge: {
-    fontSize: TYPOGRAPHY.sizes.sm,
+    fontSize: TYPOGRAPHY.sizes.xs,
     color: 'rgba(255,255,255,0.72)',
-    marginTop: 3,
+    marginTop: 2,
     fontWeight: '500',
   },
   bankNameText: {
     fontSize: 10,
     color: 'rgba(255,255,255,0.75)',
-    marginTop: 4,
+    marginTop: 2,
     fontWeight: '600',
-    lineHeight: 14,
+    lineHeight: 13,
   },
   flipHintBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
     borderRadius: RADIUS.full,
     flexShrink: 0,
-    marginTop: 2,
   },
   flipHintText: {
     fontSize: 10,
@@ -499,15 +498,15 @@ const cardStyles = StyleSheet.create({
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.15)',
   },
-  // Front bottom CTA (replaces credential preview)
+  // Front bottom CTA
   frontRevealRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.xs,
+    gap: 4,
   },
   revealText: {
     flex: 1,
-    fontSize: TYPOGRAPHY.sizes.xs,
+    fontSize: 10,
     color: 'rgba(255,255,255,0.55)',
     fontStyle: 'italic',
   },
@@ -518,9 +517,9 @@ const cardStyles = StyleSheet.create({
     gap: SPACING.sm,
   },
   logoBubbleSmall: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 30,
+    height: 30,
+    borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: 'rgba(255,255,255,0.1)',
     justifyContent: 'center',
@@ -528,21 +527,21 @@ const cardStyles = StyleSheet.create({
     flexShrink: 0,
   },
   logoImageSmall: {
-    width: 32,
-    height: 32,
+    width: 26,
+    height: 26,
   },
   backTitle: {
-    fontSize: TYPOGRAPHY.sizes.md,
+    fontSize: TYPOGRAPHY.sizes.sm,
     fontWeight: '700',
     color: '#fff',
     letterSpacing: -0.2,
   },
   detailBox: {
     backgroundColor: 'rgba(0,0,0,0.28)',
-    borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm + 2,
-    gap: 4,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.sm,
+    gap: 3,
   },
   detailLabel: {
     fontSize: 10,
@@ -552,44 +551,44 @@ const cardStyles = StyleSheet.create({
     fontWeight: '600',
   },
   detailValue: {
-    fontSize: TYPOGRAPHY.sizes.sm + 1,
+    fontSize: TYPOGRAPHY.sizes.sm,
     color: '#fff',
     fontWeight: '700',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
   accountRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginTop: 3,
-    paddingTop: 4,
+    marginTop: 2,
+    paddingTop: 3,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,255,255,0.2)',
   },
   accountText: {
-    fontSize: TYPOGRAPHY.sizes.xs,
+    fontSize: 11,
     color: 'rgba(255,255,255,0.8)',
     fontWeight: '500',
     flex: 1,
   },
   backActions: {
     flexDirection: 'row',
-    gap: SPACING.sm,
+    gap: SPACING.xs,
   },
   actionBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 9,
-    borderRadius: RADIUS.lg,
-    minHeight: 38,
+    gap: 5,
+    paddingVertical: 7,
+    borderRadius: RADIUS.md,
+    minHeight: 32,
   },
   actionBtnPrimary: {},
   actionBtnText: {
     color: '#fff',
-    fontSize: TYPOGRAPHY.sizes.xs + 1,
+    fontSize: TYPOGRAPHY.sizes.xs,
     fontWeight: '700',
   },
 });
