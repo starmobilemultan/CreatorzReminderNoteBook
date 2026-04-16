@@ -220,7 +220,7 @@ const coffeeStyles = StyleSheet.create({
 });
 
 // ─── Fixed card height ────────────────────────────────────────────────────────
-const CARD_HEIGHT = 210;
+const CARD_HEIGHT = 248;
 
 // ─── Payment Card with Flip Animation ────────────────────────────────────────
 // FRONT: shows method name, logo, subtitle, bankName (for easypaisa), flip hint
@@ -286,41 +286,42 @@ function PaymentCard({
               end={{ x: 1, y: 1 }}
               style={cardStyles.faceInner}
             >
-              {/* Logo + title row */}
+              {/* Top row: flip hint only */}
               <View style={cardStyles.frontTopRow}>
-                {/* Logo image instead of icon/emoji */}
-                <View style={cardStyles.logoBubble}>
+                <View style={[cardStyles.flipHintBadge, { backgroundColor: 'rgba(255,255,255,0.12)', marginLeft: 'auto' }]}>
+                  <MaterialIcons name="flip" size={13} color="rgba(255,255,255,0.7)" />
+                  <Text style={cardStyles.flipHintText}>Tap to Flip</Text>
+                </View>
+              </View>
+
+              {/* CENTER: large logo + big method name — main focus area */}
+              <View style={cardStyles.frontCenter}>
+                <View style={cardStyles.logoBubbleLarge}>
                   <Image
                     source={method.logoSource}
-                    style={cardStyles.logoImage}
+                    style={cardStyles.logoImageLarge}
                     contentFit={method.logoStyle ?? 'contain'}
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={cardStyles.methodTitle}>{method.title}</Text>
-                  <Text style={cardStyles.methodSubtitle}>{method.subtitle}</Text>
-                  {/* Bank name — only shown on front for EasyPaisa */}
+                  <Text style={cardStyles.methodTitleLarge}>{method.title}</Text>
+                  <Text style={cardStyles.methodSubtitleLarge}>{method.subtitle}</Text>
                   {method.bankName ? (
                     <Text style={cardStyles.bankNameText} numberOfLines={2}>
                       {method.bankName}
                     </Text>
                   ) : null}
                 </View>
-                {/* Flip hint */}
-                <View style={[cardStyles.flipHintBadge, { backgroundColor: 'rgba(255,255,255,0.12)' }]}>
-                  <MaterialIcons name="flip" size={13} color="rgba(255,255,255,0.7)" />
-                  <Text style={cardStyles.flipHintText}>Flip</Text>
-                </View>
               </View>
 
               {/* Divider */}
               <View style={cardStyles.dividerLine} />
 
-              {/* Bottom CTA — tap to reveal credentials */}
+              {/* Bottom CTA */}
               <View style={cardStyles.frontRevealRow}>
                 <MaterialIcons name="lock" size={15} color="rgba(255,255,255,0.55)" />
                 <Text style={cardStyles.revealText}>
-                  Tap card to flip &amp; reveal payment details
+                  Flip to reveal payment details
                 </Text>
                 <MaterialIcons name="chevron-right" size={18} color="rgba(255,255,255,0.5)" />
               </View>
@@ -434,33 +435,43 @@ const cardStyles = StyleSheet.create({
   // Front
   frontTopRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: SPACING.sm,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
-  logoBubble: {
-    width: 58,
-    height: 58,
-    borderRadius: 16,
+  // Large centered hero area on front face
+  frontCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    flex: 1,
+    paddingVertical: SPACING.xs,
+  },
+  logoBubbleLarge: {
+    width: 76,
+    height: 76,
+    borderRadius: 20,
     overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
     flexShrink: 0,
   },
-  logoImage: {
-    width: 54,
-    height: 54,
+  logoImageLarge: {
+    width: 70,
+    height: 70,
   },
-  methodTitle: {
-    fontSize: TYPOGRAPHY.sizes.lg,
-    fontWeight: '700',
+  methodTitleLarge: {
+    fontSize: TYPOGRAPHY.sizes.xxl,
+    fontWeight: '800',
     color: '#fff',
-    letterSpacing: -0.3,
+    letterSpacing: -0.5,
+    lineHeight: 30,
   },
-  methodSubtitle: {
-    fontSize: TYPOGRAPHY.sizes.xs,
-    color: 'rgba(255,255,255,0.65)',
-    marginTop: 2,
+  methodSubtitleLarge: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: 'rgba(255,255,255,0.72)',
+    marginTop: 3,
+    fontWeight: '500',
   },
   bankNameText: {
     fontSize: 10,

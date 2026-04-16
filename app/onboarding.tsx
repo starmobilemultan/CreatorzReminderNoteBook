@@ -20,22 +20,28 @@ const { width } = Dimensions.get('window');
 
 const slides = [
   {
+    isBrandSlide: true,
+    image: null,
+    title: '',
+    description: '',
+  },
+  {
+    isBrandSlide: false,
     image: require('../assets/images/onboarding-1.png'),
     title: 'Smart Notes & Reminders',
     description: 'Organize your thoughts and never miss important tasks with our powerful 2-in-1 productivity app',
-    isFirst: true,
   },
   {
+    isBrandSlide: false,
     image: require('../assets/images/onboarding-2.png'),
     title: 'Intelligent Organization',
     description: 'Rich task details, categories, priorities, and seamless note-reminder linking for ultimate productivity',
-    isFirst: false,
   },
   {
+    isBrandSlide: false,
     image: require('../assets/images/onboarding-3.png'),
     title: 'Secure & Private',
     description: 'Your data stays on your device with biometric security and PIN protection',
-    isFirst: false,
   },
 ];
 
@@ -248,39 +254,35 @@ export default function OnboardingScreen() {
   };
 
   const slide = slides[currentSlide];
-  const isFirstSlide = currentSlide === 0;
+  const isBrandSlide = slide.isBrandSlide;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.content, { paddingTop: insets.top + SPACING.md }]}>
 
-        {/* ── First slide: premium animated brand block ─────────────────── */}
-        {isFirstSlide ? (
-          <BrandTitle colors={colors} />
+        {/* ── Brand slide: full-screen logo + animated name only ────────── */}
+        {isBrandSlide ? (
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <BrandTitle colors={colors} />
+          </View>
         ) : (
-          <Image
-            source={slide.image}
-            style={styles.image}
-            contentFit="contain"
-            transition={300}
-          />
-        )}
-
-        <View style={styles.textContent}>
-          {isFirstSlide ? (
+          <>
             <Image
               source={slide.image}
-              style={styles.imageSmall}
+              style={styles.image}
               contentFit="contain"
               transition={300}
             />
-          ) : null}
-          <Text style={[styles.title, { color: colors.text }]}>{slide.title}</Text>
-          <Text style={[styles.description, { color: colors.textSecondary }]}>
-            {slide.description}
-          </Text>
-        </View>
+            <View style={styles.textContent}>
+              <Text style={[styles.title, { color: colors.text }]}>{slide.title}</Text>
+              <Text style={[styles.description, { color: colors.textSecondary }]}>
+                {slide.description}
+              </Text>
+            </View>
+          </>
+        )}
 
+        {!isBrandSlide ? null : <View style={{ flex: 1 }} />}
         <View style={styles.pagination}>
           {slides.map((_, index) => (
             <View
@@ -329,11 +331,6 @@ const styles = StyleSheet.create({
   image: {
     width: width * 0.75,
     height: width * 0.85,
-  },
-  imageSmall: {
-    width: width * 0.55,
-    height: width * 0.55,
-    marginBottom: SPACING.md,
   },
   textContent: {
     paddingHorizontal: SPACING.xl,
