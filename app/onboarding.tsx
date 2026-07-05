@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { requestNotificationPermissions } from '../services/notifications';
-import { runStartupPermissionCheck, promptBatteryOptimization, promptFullScreenIntent } from '../services/permissions';
+import { runStartupPermissionCheck, promptBatteryOptimization, promptFullScreenIntent, promptDisplayOverApps } from '../services/permissions';
 import {
   View,
   Text,
@@ -207,19 +207,40 @@ export default function OnboardingScreen() {
     // Request all permissions in sequence so the user sees proper system dialogs
     await requestNotificationPermissions().catch(() => {});
     await runStartupPermissionCheck().catch(() => {});
-    // Prompt battery optimization on Android so alarms work when app is killed
+    // Prompt battery optimization → full-screen intent → display over apps (Android)
     if (typeof promptBatteryOptimization === 'function') {
       promptBatteryOptimization(
         () => {
-          // After battery optimization, prompt full-screen intent (Android 14+)
           if (typeof promptFullScreenIntent === 'function') {
-            promptFullScreenIntent(() => {}, () => {});
+            promptFullScreenIntent(
+              () => {
+                // After full-screen intent, prompt for Display Over Other Apps
+                if (typeof promptDisplayOverApps === 'function') {
+                  promptDisplayOverApps(() => {}, () => {});
+                }
+              },
+              () => {
+                if (typeof promptDisplayOverApps === 'function') {
+                  promptDisplayOverApps(() => {}, () => {});
+                }
+              }
+            );
           }
         },
         () => {
-          // Even if user skips battery opt, still prompt for full-screen
           if (typeof promptFullScreenIntent === 'function') {
-            promptFullScreenIntent(() => {}, () => {});
+            promptFullScreenIntent(
+              () => {
+                if (typeof promptDisplayOverApps === 'function') {
+                  promptDisplayOverApps(() => {}, () => {});
+                }
+              },
+              () => {
+                if (typeof promptDisplayOverApps === 'function') {
+                  promptDisplayOverApps(() => {}, () => {});
+                }
+              }
+            );
           }
         }
       );

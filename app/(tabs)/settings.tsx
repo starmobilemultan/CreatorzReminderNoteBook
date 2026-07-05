@@ -34,6 +34,7 @@ import {
 import {
   promptBatteryOptimization,
   promptFullScreenIntent,
+  promptDisplayOverApps,
   openExactAlarmSettings,
   checkNotificationPermission,
 } from '../../services/permissions';
@@ -668,6 +669,19 @@ export default function SettingsScreen() {
             onPress={() =>
               promptFullScreenIntent(
                 () => showAlert('Done', 'Grant the permission on the settings screen that opened.'),
+                () => {}
+              )
+            }
+            colors={colors}
+          />
+          <Divider colors={colors} />
+          <PressRow
+            icon="layers"
+            label="Display Over Other Apps"
+            value="Required for Alarm Popup"
+            onPress={() =>
+              promptDisplayOverApps(
+                () => showAlert('Done', 'Enable "Allow display over other apps" for Creatorz on the settings screen that opened.'),
                 () => {}
               )
             }

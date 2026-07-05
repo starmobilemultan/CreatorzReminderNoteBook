@@ -9,9 +9,9 @@
  *     → Does NOT bring the app to foreground automatically
  *     → User can dismiss or tap to open the app manually
  *
- *   - FULLSCREEN: Uses `reminders-high` channel (MAX importance, fullScreenIntent: true, bypassDnd: true)
+ *   - FULLSCREEN: Uses `reminders-high` channel (MAX importance, fullScreenIntent, bypassDnd)
  *     → Wakes the screen
- *     → Launches the app to foreground automatically (Android behavior for fullScreenIntent)
+ *     → Launches the app to foreground automatically (Android fullScreenIntent behavior)
  *     → Shows our AlarmModal full-screen overlay
  *     → Works even when app is killed (AlarmManager + fullScreenIntent)
  *
@@ -22,6 +22,19 @@
  *   - If notificationStyle = 'popup' and priority = 'high' AND highPriorityFullscreen = true
  *     → Upgraded to fullscreen-reminder
  *   - Otherwise high priority popup stays as popup (banner heads-up, does NOT open app)
+ *
+ * ISSUE 2 FIX — Android notification content fields:
+ *   Previously, Android-specific fields (channelId, fullScreenIntent, priority, etc.) were
+ *   spread into the content object via a plain object spread `{...androidExtras}`. While
+ *   expo-notifications does accept some of these as top-level fields, the key fields
+ *   MUST be set correctly:
+ *   - `channelId`: MUST match the versioned channel ID (e.g. reminders-high_v1)
+ *   - `fullScreenIntent`: MUST be a top-level boolean, NOT inside data{}
+ *   - The channel's importance=MAX + bypassDnd=true is what actually enables
+ *     fullScreenIntent behavior on Android — the content flag reinforces it
+ *
+ * ISSUE 1 FIX — Permission intents:
+ *   See permissions.native.ts — uses Linking.sendIntent() instead of intent:// URIs
  */
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
@@ -54,7 +67,6 @@ function versionedChannelId(base: string): string {
   return `${base}_v${_channelVersion}`;
 }
 
-/** Expose the current versioned channel IDs so callers can build correct notifications */
 export function getPopupChannelId(): string {
   return versionedChannelId('reminders');
 }
@@ -64,10 +76,6 @@ export function getAlarmChannelId(): string {
 }
 
 // ─── Foreground notification handler ─────────────────────────────────────────
-// When app is in foreground:
-//   - fullscreen: show at MAX priority (AlarmModal will render)
-//   - popup: show at HIGH priority as a banner (AlarmModal will render via received listener)
-//   - banner/pre: show at HIGH priority only in system tray
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const data = notification.request.content.data as any;
@@ -114,7 +122,6 @@ async function deleteStaleChannels(currentVersion: number): Promise<void> {
     }
   }
 
-  // Remove legacy non-versioned channels
   for (const base of bases) {
     try {
       await Notifications.deleteNotificationChannelAsync(base);
@@ -123,9 +130,6 @@ async function deleteStaleChannels(currentVersion: number): Promise<void> {
 }
 
 // ─── Android channel setup ────────────────────────────────────────────────────
-// TWO SEPARATE CHANNELS:
-//   reminders        → POPUP & BANNER: HIGH importance, no bypassDnd, no fullScreenIntent
-//   reminders-high   → FULLSCREEN: MAX importance, bypassDnd=true, fullScreenIntent fires here
 export async function ensureAndroidChannels(
   soundEnabled = true,
   vibrationEnabled = true
@@ -134,9 +138,7 @@ export async function ensureAndroidChannels(
 
   await deleteStaleChannels(_channelVersion);
 
-  // ── POPUP / BANNER channel (HIGH importance) ──────────────────────────────
-  // HIGH importance = shows heads-up banner on top of current app
-  // Does NOT wake screen, does NOT bypass DND, does NOT open the app
+  // POPUP / BANNER channel (HIGH importance) — no fullScreenIntent, no bypassDnd
   await Notifications.setNotificationChannelAsync(versionedChannelId('reminders'), {
     name: 'Reminders',
     description: 'Popup and banner reminder alerts — appears as a heads-up banner',
@@ -151,9 +153,7 @@ export async function ensureAndroidChannels(
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 
-  // ── FULLSCREEN / ALARM channel (MAX importance) ───────────────────────────
-  // MAX importance = wakes screen, bypasses DND, allows fullScreenIntent
-  // This channel is ONLY used for fullscreen-type reminders
+  // FULLSCREEN / ALARM channel (MAX importance) — wakes screen, bypassDnd, fullScreenIntent
   await Notifications.setNotificationChannelAsync(versionedChannelId('reminders-high'), {
     name: 'Alarm Reminders',
     description: 'Full-screen alarm alerts — wakes screen and bypasses Do Not Disturb',
@@ -164,11 +164,11 @@ export async function ensureAndroidChannels(
     enableVibrate: vibrationEnabled,
     enableLights: true,
     showBadge: true,
-    bypassDnd: true,          // ← REQUIRED: wakes screen even in DND/silent mode
+    bypassDnd: true,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 
-  // ── PRE-REMINDER channel (DEFAULT importance) ─────────────────────────────
+  // PRE-REMINDER channel (DEFAULT importance)
   await Notifications.setNotificationChannelAsync(versionedChannelId('reminders-pre'), {
     name: 'Early Reminders',
     description: 'Advance notice before a reminder is due',
@@ -249,7 +249,6 @@ function buildBody(reminder: Reminder, isPreReminder = false, preMinutesLabel = 
   return parts.filter(Boolean).join('\n');
 }
 
-// ─── Determine if fullscreen should be used ───────────────────────────────────
 function shouldUseFullScreen(reminder: Reminder, settings: AppSettings): boolean {
   if (settings.notificationStyle === 'fullscreen') return true;
   if (
@@ -262,10 +261,16 @@ function shouldUseFullScreen(reminder: Reminder, settings: AppSettings): boolean
   return false;
 }
 
-// ─── Build notification content ───────────────────────────────────────────────
-// CRITICAL: popup notifications MUST NOT have fullScreenIntent=true
-// popup → reminders channel (HIGH), no fullScreenIntent
-// fullscreen → reminders-high channel (MAX), fullScreenIntent=true
+// ─── Build notification content (FIXED) ──────────────────────────────────────
+// FIX: Android-specific fields are set as top-level properties on the content
+// object, NOT spread from a separate androidExtras dict. This ensures expo-
+// notifications correctly maps them to the underlying Android NotificationCompat
+// builder methods.
+//
+// KEY: channelId MUST be the versioned channel ID (e.g. reminders-high_v1)
+// KEY: fullScreenIntent must be a boolean at the top level of content (not in data{})
+// KEY: The CHANNEL's importance=MAX + bypassDnd=true is what enables fullScreenIntent;
+//      setting fullScreenIntent=true in the content reinforces it.
 function buildContent(
   reminder: Reminder,
   settings: AppSettings,
@@ -275,39 +280,11 @@ function buildContent(
   const isFullScreen = notifType === 'fullscreen-reminder';
   const isHighPriority = reminder.priority === 'high';
 
-  const androidExtras: Record<string, any> = {
-    channelId: ch,
-    color: isFullScreen ? '#EF4444' : '#6366F1',
-    priority: isFullScreen
-      ? Notifications.AndroidNotificationPriority.MAX
-      : Notifications.AndroidNotificationPriority.HIGH,
-    sticky: false,
-    ongoing: false,
-    autoDismiss: true,
-    visibility: 1, // VISIBILITY_PUBLIC — show on lock screen
-  };
-
-  // ONLY set fullScreenIntent for fullscreen type
-  // DO NOT set it for popup — it would bring the app to foreground
-  if (isFullScreen) {
-    androidExtras.fullScreenIntent = true;
-  }
-
-  if (!settings.vibrationEnabled) {
-    androidExtras.vibrate = null;
-  } else if (isFullScreen) {
-    androidExtras.vibrate = [0, 500, 300, 500, 300, 500];
-  } else {
-    androidExtras.vibrate = [0, 300, 200, 300];
-  }
-
-  const sound = settings.soundEnabled ? 'default' : undefined;
-
-  return {
+  const content: any = {
     title: buildTitle(reminder),
     body: buildBody(reminder),
     subtitle: isHighPriority ? getPriorityLabel(reminder.priority) : undefined,
-    sound,
+    sound: settings.soundEnabled ? 'default' : undefined,
     data: {
       reminderId: reminder.id,
       reminderTitle: reminder.title,
@@ -317,8 +294,49 @@ function buildContent(
       repeat: reminder.repeat,
       notificationStyle: settings.notificationStyle,
     },
-    ...(Platform.OS === 'android' ? androidExtras : {}),
   };
+
+  if (Platform.OS === 'android') {
+    // channelId — versioned to match the channel we created above
+    content.channelId = ch;
+
+    // Color accent
+    content.color = isFullScreen ? '#EF4444' : '#6366F1';
+
+    // Notification priority within the channel
+    content.priority = isFullScreen
+      ? Notifications.AndroidNotificationPriority.MAX
+      : Notifications.AndroidNotificationPriority.HIGH;
+
+    // Show full notification on lock screen (not hidden/secret)
+    content.lockscreenVisibility = Notifications.AndroidNotificationVisibility.PUBLIC;
+
+    // Auto-dismiss when tapped
+    content.autoDismiss = true;
+    content.sticky = false;
+    content.ongoing = false;
+
+    // Vibration
+    if (!settings.vibrationEnabled) {
+      content.vibrationPattern = null;
+    } else if (isFullScreen) {
+      content.vibrationPattern = [0, 500, 300, 500, 300, 500];
+    } else {
+      content.vibrationPattern = [0, 300, 200, 300];
+    }
+
+    // FULLSCREEN ONLY: fullScreenIntent flag
+    // This + the channel's MAX importance + bypassDnd=true causes Android to:
+    // 1. Wake the screen
+    // 2. Launch our app's MainActivity via fullScreenIntent
+    // 3. Our app shows the AlarmModal over the lock screen
+    // NOTE: popup/banner must NOT have fullScreenIntent=true — it would open the app
+    if (isFullScreen) {
+      content.fullScreenIntent = true;
+    }
+  }
+
+  return content as Notifications.NotificationContentInput;
 }
 
 // ─── Monthly / yearly occurrence helpers ──────────────────────────────────────
@@ -373,7 +391,6 @@ export async function scheduleReminderNotification(
     await ensureAndroidChannels(settings.soundEnabled, settings.vibrationEnabled);
     await registerNotificationCategories();
 
-    // Determine notification type
     const useFullScreen = shouldUseFullScreen(reminder, settings);
     let notifType: 'fullscreen-reminder' | 'popup-reminder' | 'banner-reminder';
 
@@ -385,9 +402,6 @@ export async function scheduleReminderNotification(
       notifType = 'popup-reminder';
     }
 
-    // Channel selection:
-    // fullscreen → reminders-high (MAX, bypassDnd, fullScreenIntent)
-    // popup/banner → reminders (HIGH, no fullScreenIntent)
     const ch = notifType === 'fullscreen-reminder'
       ? versionedChannelId('reminders-high')
       : versionedChannelId('reminders');
@@ -479,28 +493,33 @@ async function schedulePreNotification(
     const minutesLabel = preMinutes >= 60 ? `${preMinutes / 60} hour` : `${preMinutes} min`;
     const preCh = versionedChannelId('reminders-pre');
 
-    const preAndroid: Record<string, any> = {
-      channelId: preCh,
-      color: '#10B981',
-      priority: Notifications.AndroidNotificationPriority.DEFAULT,
+    const preContent: any = {
+      title: buildTitle(reminder, true),
+      body: buildBody(reminder, true, minutesLabel),
+      sound: settings.soundEnabled ? 'default' : undefined,
+      data: {
+        reminderId: reminder.id,
+        reminderTitle: reminder.title,
+        reminderBody: reminder.description?.trim() || '',
+        type: 'pre-reminder',
+        priority: reminder.priority,
+      },
     };
-    if (!settings.vibrationEnabled) preAndroid.vibrate = null;
+
+    if (Platform.OS === 'android') {
+      preContent.channelId = preCh;
+      preContent.color = '#10B981';
+      preContent.priority = Notifications.AndroidNotificationPriority.DEFAULT;
+      preContent.lockscreenVisibility = Notifications.AndroidNotificationVisibility.PUBLIC;
+      preContent.autoDismiss = true;
+      if (!settings.vibrationEnabled) {
+        preContent.vibrationPattern = null;
+      }
+    }
 
     await Notifications.scheduleNotificationAsync({
       identifier: `reminder-pre-${reminder.id}`,
-      content: {
-        title: buildTitle(reminder, true),
-        body: buildBody(reminder, true, minutesLabel),
-        sound: settings.soundEnabled ? 'default' : undefined,
-        data: {
-          reminderId: reminder.id,
-          reminderTitle: reminder.title,
-          reminderBody: reminder.description?.trim() || '',
-          type: 'pre-reminder',
-          priority: reminder.priority,
-        },
-        ...(Platform.OS === 'android' ? preAndroid : {}),
-      },
+      content: preContent,
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.DATE,
         date: preDate,
@@ -599,43 +618,45 @@ export async function snoozeReminder(
     const fullBody = [priorityLabel, reminderBody].filter(Boolean).join('\n');
     const timeLabel = snoozeMinutes >= 60 ? `${snoozeMinutes / 60}h` : `${snoozeMinutes} min`;
 
-    const androidExtras: Record<string, any> = {
-      channelId: ch,
-      color: useFullScreen ? '#EF4444' : '#6366F1',
-      priority: useFullScreen
-        ? Notifications.AndroidNotificationPriority.MAX
-        : Notifications.AndroidNotificationPriority.HIGH,
-      sticky: false,
-      ongoing: false,
-      autoDismiss: true,
-      visibility: 1,
+    const snoozeContent: any = {
+      title: `🔔 ${reminderTitle}`,
+      body: fullBody || 'Snoozed reminder — time is up!',
+      subtitle: `Snoozed · ${timeLabel}`,
+      sound: settings.soundEnabled ? 'default' : undefined,
+      data: {
+        reminderId,
+        reminderTitle,
+        reminderBody,
+        type: notifType,
+        priority,
+        snoozed: true,
+        notificationStyle,
+      },
     };
 
-    if (useFullScreen) {
-      androidExtras.fullScreenIntent = true;
-      androidExtras.vibrate = settings.vibrationEnabled ? [0, 500, 300, 500, 300, 500] : null;
-    } else {
-      androidExtras.vibrate = settings.vibrationEnabled ? [0, 300, 200, 300] : null;
+    if (Platform.OS === 'android') {
+      snoozeContent.channelId = ch;
+      snoozeContent.color = useFullScreen ? '#EF4444' : '#6366F1';
+      snoozeContent.priority = useFullScreen
+        ? Notifications.AndroidNotificationPriority.MAX
+        : Notifications.AndroidNotificationPriority.HIGH;
+      snoozeContent.lockscreenVisibility = Notifications.AndroidNotificationVisibility.PUBLIC;
+      snoozeContent.autoDismiss = true;
+      snoozeContent.sticky = false;
+      snoozeContent.ongoing = false;
+      if (useFullScreen) {
+        snoozeContent.fullScreenIntent = true;
+        snoozeContent.vibrationPattern =
+          settings.vibrationEnabled ? [0, 500, 300, 500, 300, 500] : null;
+      } else {
+        snoozeContent.vibrationPattern =
+          settings.vibrationEnabled ? [0, 300, 200, 300] : null;
+      }
     }
 
     await Notifications.scheduleNotificationAsync({
       identifier: `reminder-snooze-${reminderId}`,
-      content: {
-        title: `🔔 ${reminderTitle}`,
-        body: fullBody || 'Snoozed reminder — time is up!',
-        subtitle: `Snoozed · ${timeLabel}`,
-        sound: settings.soundEnabled ? 'default' : undefined,
-        data: {
-          reminderId,
-          reminderTitle,
-          reminderBody,
-          type: notifType,
-          priority,
-          snoozed: true,
-          notificationStyle,
-        },
-        ...(Platform.OS === 'android' ? androidExtras : {}),
-      },
+      content: snoozeContent,
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.DATE,
         date: snoozeDate,
@@ -657,11 +678,10 @@ export async function getScheduledNotifications(): Promise<Notifications.Notific
   }
 }
 
-// ─── Test notification ────────────────────────────────────────────────────────
+// ─── Test notification (FIXED) ────────────────────────────────────────────────
 /**
- * Schedules a test notification in 5 seconds using the CORRECT versioned channel.
- * Uses the popup channel (HIGH importance) for popup/banner styles so the user
- * sees a real heads-up banner, and the alarm channel (MAX) for fullscreen.
+ * Schedules a test notification in 5 seconds using the CORRECT versioned channel
+ * and correct Android content field placement.
  */
 export async function scheduleTestNotification(
   settings: AppSettings
@@ -672,43 +692,45 @@ export async function scheduleTestNotification(
   const isFullScreen = settings.notificationStyle === 'fullscreen';
   const notifType = isFullScreen ? 'fullscreen-reminder' : 'popup-reminder';
 
-  // Use the correct versioned channel — this is the key fix
+  // Versioned channel ID — matches what was actually created by ensureAndroidChannels
   const ch = isFullScreen ? versionedChannelId('reminders-high') : versionedChannelId('reminders');
 
-  const androidExtras: Record<string, any> = {
-    channelId: ch, // ← VERSIONED — matches the actual channel on device
-    color: isFullScreen ? '#EF4444' : '#6366F1',
-    priority: isFullScreen
-      ? Notifications.AndroidNotificationPriority.MAX
-      : Notifications.AndroidNotificationPriority.HIGH,
-    sticky: false,
-    autoDismiss: true,
-    visibility: 1,
+  const testContent: any = {
+    title: '🔔 Test Reminder',
+    body: '🟡 MEDIUM PRIORITY\nThis is a test — your notifications are working!',
+    sound: settings.soundEnabled ? 'default' : undefined,
+    data: {
+      reminderId: 'test-' + Date.now(),
+      reminderTitle: 'Test Reminder',
+      reminderBody: 'This is a test notification!',
+      type: notifType,
+      priority: 'medium',
+      notificationStyle: settings.notificationStyle,
+    },
   };
 
-  if (isFullScreen) {
-    androidExtras.fullScreenIntent = true;
-    androidExtras.vibrate = settings.vibrationEnabled ? [0, 500, 300, 500, 300, 500] : null;
-  } else {
-    androidExtras.vibrate = settings.vibrationEnabled ? [0, 300, 200, 300] : null;
+  if (Platform.OS === 'android') {
+    testContent.channelId = ch;
+    testContent.color = isFullScreen ? '#EF4444' : '#6366F1';
+    testContent.priority = isFullScreen
+      ? Notifications.AndroidNotificationPriority.MAX
+      : Notifications.AndroidNotificationPriority.HIGH;
+    testContent.lockscreenVisibility = Notifications.AndroidNotificationVisibility.PUBLIC;
+    testContent.autoDismiss = true;
+    testContent.sticky = false;
+    if (isFullScreen) {
+      testContent.fullScreenIntent = true;
+      testContent.vibrationPattern =
+        settings.vibrationEnabled ? [0, 500, 300, 500, 300, 500] : null;
+    } else {
+      testContent.vibrationPattern =
+        settings.vibrationEnabled ? [0, 300, 200, 300] : null;
+    }
   }
 
   await Notifications.scheduleNotificationAsync({
     identifier: 'test-notification-' + Date.now(),
-    content: {
-      title: '🔔 Test Reminder',
-      body: '🟡 MEDIUM PRIORITY\nThis is a test — your notifications are working!',
-      sound: settings.soundEnabled ? 'default' : undefined,
-      data: {
-        reminderId: 'test-' + Date.now(),
-        reminderTitle: 'Test Reminder',
-        reminderBody: 'This is a test notification!',
-        type: notifType,
-        priority: 'medium',
-        notificationStyle: settings.notificationStyle,
-      },
-      ...(Platform.OS === 'android' ? androidExtras : {}),
-    },
+    content: testContent,
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,
       date: new Date(Date.now() + 5000),

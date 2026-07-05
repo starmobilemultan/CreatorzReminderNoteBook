@@ -1,6 +1,6 @@
 /**
  * permissions.web.ts — Web stubs
- * expo-intent-launcher is native-only; all functions are no-ops on web.
+ * All native-only functions are no-ops on web.
  */
 
 export type PermissionResult = {
@@ -25,6 +25,8 @@ export async function openExactAlarmSettings(): Promise<void> {}
 
 export async function openFullScreenIntentSettings(): Promise<void> {}
 
+export async function openOverlaySettings(): Promise<void> {}
+
 export async function requestIgnoreBatteryOptimization(): Promise<void> {}
 
 export function isBatteryOptimizationCheckSupported(): boolean {
@@ -43,6 +45,13 @@ export function promptBatteryOptimization(
 ): void {}
 
 export function promptFullScreenIntent(
+  onConfirm: () => void,
+  _onDismiss?: () => void
+): void {
+  onConfirm();
+}
+
+export function promptDisplayOverApps(
   onConfirm: () => void,
   _onDismiss?: () => void
 ): void {
