@@ -76,27 +76,35 @@ export function getAlarmChannelId(): string {
 }
 
 // ─── Foreground notification handler ─────────────────────────────────────────
-Notifications.setNotificationHandler({
-  handleNotification: async (notification) => {
-    const data = notification.request.content.data as any;
-    const type: string = data?.type ?? 'popup-reminder';
-    const isFullScreen = type === 'fullscreen-reminder';
-    const isBannerOrPre = type === 'pre-reminder' || type === 'banner-reminder';
+// NOTE: Called explicitly from ensureAndroidChannels / requestNotificationPermissions
+// to avoid crashing at module load time (top-level code that references
+// Notifications.AndroidNotificationPriority can fail if the native module
+// isn't fully ready, making the entire module return undefined and breaking
+// Expo Router's route component resolution).
+function registerNotificationHandler(): void {
+  try {
+    Notifications.setNotificationHandler({
+      handleNotification: async (notification) => {
+        const data = notification.request.content.data as any;
+        const type: string = data?.type ?? 'popup-reminder';
+        const isFullScreen = type === 'fullscreen-reminder';
 
-    return {
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-      shouldShowBanner: true,
-      shouldShowList: true,
-      priority: isFullScreen
-        ? Notifications.AndroidNotificationPriority.MAX
-        : isBannerOrPre
-          ? Notifications.AndroidNotificationPriority.DEFAULT
-          : Notifications.AndroidNotificationPriority.HIGH,
-    };
-  },
-});
+        return {
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: false,
+          shouldShowBanner: true,
+          shouldShowList: true,
+        };
+      },
+    });
+  } catch (err) {
+    console.warn('[Notifications] setNotificationHandler failed:', err);
+  }
+}
+
+// Register handler on first import (wrapped in try/catch for safety)
+try { registerNotificationHandler(); } catch (_) {}
 
 // ─── Register notification categories ────────────────────────────────────────
 export async function registerNotificationCategories(): Promise<void> {
@@ -135,6 +143,9 @@ export async function ensureAndroidChannels(
   vibrationEnabled = true
 ): Promise<void> {
   if (Platform.OS !== 'android') return;
+
+  // Re-register handler here so it's always active (safe to call multiple times)
+  registerNotificationHandler();
 
   await deleteStaleChannels(_channelVersion);
 
