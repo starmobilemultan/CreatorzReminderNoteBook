@@ -1,35 +1,43 @@
 /**
  * permissions.native.ts — iOS & Android implementation
  *
- * FIXES APPLIED:
+ * ROOT CAUSE FIXES (v2):
  *
- * Issue 1 — Correct Settings Intent URIs:
- *   The previous `intent:#Intent;action=...;end` URI scheme is unreliable and
- *   often opens App Info instead of the specific settings screen. The correct
- *   approach is:
- *   1. Use `Linking.sendIntent(action, extras)` — React Native's native Android
- *      intent API that directly maps to startActivity(Intent) on the Java side.
- *   2. Pass the package URI as an extra (not as data) for settings pages that
- *      need the app package to scope to this specific app.
- *   3. Multi-level fallback chain: specific page → general page → app info → settings root.
+ * FIX 1 — Correct package name (was returning 'com.anonymous'):
+ *   Previous `getPackageName()` read from `Constants.expoConfig?.android?.package`
+ *   but `app.json` has NO `android.package` field — so it always returned
+ *   'com.anonymous'. Android then opened the wrong app's settings or nothing.
+ *   CORRECT: Use `Application.applicationId` from `expo-application` which
+ *   returns the ACTUAL runtime package name installed on the device.
  *
- * Issue 2 — System Alert Window (Display Over Other Apps):
- *   For AlarmModal to render over the lock screen / other apps, the app needs the
- *   SYSTEM_ALERT_WINDOW permission in addition to USE_FULL_SCREEN_INTENT.
- *   The correct settings action is: android.settings.action.MANAGE_OVERLAY_PERMISSION
- *   with a `package:` URI via data extra.
+ * FIX 2 — Correct intent data URI format (sendIntent was wrong API):
+ *   `Linking.sendIntent(action, extras)` adds key-value extras to the Intent
+ *   but does NOT set the Intent DATA URI. All Android settings actions that
+ *   open per-app toggles require the package as DATA URI:
+ *     Intent.setData(Uri.parse("package:com.xxx"))
+ *   The correct way from React Native is `Linking.openURL()` with the
+ *   Android intent URI format:
+ *     "android-app://settings#Intent;action=ACTION;data=package:COM.XXX;end"
+ *   OR the simpler direct format that works on most devices:
+ *     Use `Linking.sendIntent` for the action, then separately openURL the
+ *     package: URI (but this doesn't work for these settings either).
  *
- *   How Android full-screen intent works with expo-notifications:
- *   - Channel importance = MAX + bypassDnd = true → Android fires fullScreenIntent
- *   - fullScreenIntent launches the app's MainActivity (not a floating window)
- *   - The AlarmModal renders INSIDE the launched app — this is correct behavior
- *   - The app opens on top of whatever was on screen (home/lock screen/other app)
- *   - SYSTEM_ALERT_WINDOW is required for the app to draw over the lock screen
- *   - USE_FULL_SCREEN_INTENT is required for Android 14+ to allow this behavior
+ *   ACTUAL WORKING FIX:
+ *   Android intent URI format accepted by Linking.openURL():
+ *     intent:#Intent;action=android.settings.FOO;data=package%3Acom.xxx;end
+ *   The `data=` field in intent:// URI sets Intent.setData() — this is what
+ *   Android needs to open the per-app settings page directly.
+ *
+ * FIX 3 — Full-screen intent behavior clarification:
+ *   In Expo managed workflow, a MAX importance channel + bypassDnd=true triggers
+ *   Android's fullScreenIntent automatically. The app launches via MainActivity
+ *   which then renders the AlarmModal. This IS the correct behavior.
+ *   SYSTEM_ALERT_WINDOW (Display Over Other Apps) is needed for the modal to
+ *   draw over the lock screen after the app is launched.
  */
 
 import { Alert, Linking, Platform } from 'react-native';
-import Constants from 'expo-constants';
+import * as Application from 'expo-application';
 import * as Notifications from 'expo-notifications';
 
 export type PermissionResult = {
@@ -38,56 +46,72 @@ export type PermissionResult = {
   batteryOptimization: boolean;
 };
 
-// ─── Package name helper ──────────────────────────────────────────────────────
+// ─── Package name helper (FIXED) ─────────────────────────────────────────────
+/**
+ * Returns the ACTUAL runtime package name of the installed app.
+ * Uses expo-application which reads from the native PackageManager at runtime.
+ * This is reliable regardless of what's in app.json.
+ */
 function getPackageName(): string {
   try {
-    const pkg =
-      Constants.expoConfig?.android?.package ??
-      (Constants as any).manifest?.android?.package;
-    if (pkg && typeof pkg === 'string') return pkg;
-  } catch (_) {}
-  // Fallback: read from app config slug pattern
-  return 'com.anonymous';
-}
-
-// ─── Core intent launcher ─────────────────────────────────────────────────────
-/**
- * Launch an Android settings intent using the correct API:
- * `Linking.sendIntent(action, extras)` is React Native's native binding to
- * Android's `startActivity(new Intent(action).setData(Uri.parse(data)))`.
- *
- * For settings pages that require the package URI, we pass it as an extra
- * with key "android.provider.extra.PACKAGE_NAME" OR use the direct
- * `package:com.xxx` URL scheme via Linking.openURL as a primary attempt.
- */
-async function openSettingsPage(
-  action: string,
-  packageUri?: string
-): Promise<boolean> {
-  if (Platform.OS !== 'android') return false;
-
-  // Method 1: Direct URL with settings scheme (works on most Android versions)
-  // Format: "android.settings.ACTION_NAME" is NOT a valid URL scheme.
-  // Format that works: use Linking.sendIntent with action string
-  try {
-    if (packageUri) {
-      // sendIntent with extras — this is the correct React Native Android API
-      await Linking.sendIntent(action, [
-        { key: 'android.provider.extra.PACKAGE_NAME', value: packageUri },
-      ]);
-      return true;
-    } else {
-      await Linking.sendIntent(action, []);
-      return true;
+    // Application.applicationId returns the actual Android package name at runtime
+    const appId = Application.applicationId;
+    if (appId && typeof appId === 'string' && appId.length > 3) {
+      return appId;
     }
   } catch (_) {}
 
-  // Method 2: Try with package: URI scheme via openURL (works for some actions)
-  if (packageUri) {
+  // Should never reach here on Android, but safe fallback
+  return 'com.anonymous';
+}
+
+// ─── Core intent launcher (FIXED) ────────────────────────────────────────────
+/**
+ * Opens an Android settings page using the intent:// URI format.
+ *
+ * The intent:// URI format is the only way from React Native to set BOTH
+ * the action AND the data URI on an Android Intent. `Linking.sendIntent()`
+ * only supports extras (key-value), NOT the data URI which these settings
+ * pages require.
+ *
+ * Format: intent:#Intent;action=ACTION_NAME;data=ENCODED_DATA;end
+ * The data field uses URL encoding: "package:com.xxx" → "package%3Acom.xxx"
+ */
+async function openAndroidSettingsPage(
+  action: string,
+  packageName?: string
+): Promise<boolean> {
+  if (Platform.OS !== 'android') return false;
+
+  // Build the intent URI with the package as data URI (encoded colon)
+  const encodedPkg = packageName ? `package%3A${packageName}` : null;
+
+  // Method 1: intent:// URI with data — directly sets Intent.setData()
+  if (encodedPkg) {
     try {
-      // Some Android versions accept this format for specific settings actions
-      const uri = `${action}?package=${packageUri}`;
-      await Linking.openURL(uri);
+      const intentUri = `intent:#Intent;action=${action};data=${encodedPkg};end`;
+      await Linking.openURL(intentUri);
+      return true;
+    } catch (_) {}
+  } else {
+    try {
+      const intentUri = `intent:#Intent;action=${action};end`;
+      await Linking.openURL(intentUri);
+      return true;
+    } catch (_) {}
+  }
+
+  // Method 2: Linking.sendIntent with package as extra (fallback — some devices accept this)
+  if (packageName) {
+    try {
+      await Linking.sendIntent(action, [
+        { key: 'android.provider.extra.PACKAGE_NAME', value: packageName },
+      ]);
+      return true;
+    } catch (_) {}
+  } else {
+    try {
+      await Linking.sendIntent(action, []);
       return true;
     } catch (_) {}
   }
@@ -135,23 +159,24 @@ export async function checkExactAlarmPermission(): Promise<boolean> {
 }
 
 /**
- * Opens the SCHEDULE_EXACT_ALARM settings page directly for this app.
- * On Android 12+ (API 31+): opens exact alarm permission settings.
- * Fallback: app details page.
+ * Opens SCHEDULE_EXACT_ALARM settings for this specific app.
+ * Android 12+ (API 31+): Opens exact alarm permission toggle for this app.
+ *
+ * Intent: action=android.settings.REQUEST_SCHEDULE_EXACT_ALARM, data=package:COM.XXX
+ * This opens the per-app toggle: "Allow setting exact alarms"
  */
 export async function openExactAlarmSettings(): Promise<void> {
   if (Platform.OS !== 'android') return;
   const pkg = getPackageName();
 
-  // Primary: exact alarm permission settings for this specific app
-  const ok = await openSettingsPage(
+  const ok = await openAndroidSettingsPage(
     'android.settings.REQUEST_SCHEDULE_EXACT_ALARM',
     pkg
   );
   if (ok) return;
 
   // Fallback: app details page
-  const ok2 = await openSettingsPage(
+  const ok2 = await openAndroidSettingsPage(
     'android.settings.APPLICATION_DETAILS_SETTINGS',
     pkg
   );
@@ -161,25 +186,24 @@ export async function openExactAlarmSettings(): Promise<void> {
 }
 
 /**
- * Opens the full-screen intent permission settings page for this app.
- * Required on Android 14+ (API 34+): USE_FULL_SCREEN_INTENT permission.
- * Settings action: android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT
+ * Opens full-screen intent permission settings for this specific app.
+ * Android 14+ (API 34+): Opens the "Allow full-screen intent notifications" toggle.
  *
- * This opens a per-app toggle: "Allow full-screen intent notifications"
+ * Intent: action=android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT, data=package:COM.XXX
+ * This shows the EXACT per-app toggle for USE_FULL_SCREEN_INTENT permission.
  */
 export async function openFullScreenIntentSettings(): Promise<void> {
   if (Platform.OS !== 'android') return;
   const pkg = getPackageName();
 
-  // Primary: full-screen intent settings page scoped to this app
-  const ok = await openSettingsPage(
+  const ok = await openAndroidSettingsPage(
     'android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT',
     pkg
   );
   if (ok) return;
 
-  // Fallback: app details page — user can navigate to Special App Access → Full-screen intents
-  const ok2 = await openSettingsPage(
+  // Fallback: app details → user navigates to Special App Access → Full-screen intents
+  const ok2 = await openAndroidSettingsPage(
     'android.settings.APPLICATION_DETAILS_SETTINGS',
     pkg
   );
@@ -190,28 +214,30 @@ export async function openFullScreenIntentSettings(): Promise<void> {
 
 /**
  * Opens "Display over other apps" (SYSTEM_ALERT_WINDOW) settings for this app.
- * Required for AlarmModal to render over the lock screen / other apps.
- * Settings action: android.settings.action.MANAGE_OVERLAY_PERMISSION
+ * Required for AlarmModal to render over lock screen / other apps.
+ *
+ * Intent: action=android.settings.action.MANAGE_OVERLAY_PERMISSION, data=package:COM.XXX
+ * This shows the EXACT per-app "Allow display over other apps" toggle.
  */
 export async function openOverlaySettings(): Promise<void> {
   if (Platform.OS !== 'android') return;
   const pkg = getPackageName();
 
-  // Primary: per-app overlay permission toggle (opens the exact toggle screen)
-  const ok = await openSettingsPage(
+  // Primary: per-app overlay toggle (exact screen with ON/OFF toggle)
+  const ok = await openAndroidSettingsPage(
     'android.settings.action.MANAGE_OVERLAY_PERMISSION',
     pkg
   );
   if (ok) return;
 
-  // Fallback: general overlay settings list (user finds the app in list)
-  const ok2 = await openSettingsPage(
+  // Fallback: general overlay list (user finds app)
+  const ok2 = await openAndroidSettingsPage(
     'android.settings.action.MANAGE_OVERLAY_PERMISSION'
   );
   if (ok2) return;
 
-  // Final fallback: app details → Special App Access → Display over other apps
-  const ok3 = await openSettingsPage(
+  // Final fallback: app details
+  const ok3 = await openAndroidSettingsPage(
     'android.settings.APPLICATION_DETAILS_SETTINGS',
     pkg
   );
@@ -221,42 +247,36 @@ export async function openOverlaySettings(): Promise<void> {
 }
 
 /**
- * Opens battery optimization exemption settings directly for this app.
+ * Opens battery optimization exemption settings for this specific app.
  *
- * FIX: Previous version used `intent:#Intent;...;end` URI scheme which is
- * inconsistent across devices and often opens App Info instead of the direct
- * battery optimization toggle.
- *
- * CORRECT: Use Linking.sendIntent with action=REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
- * and the package name extra — this directly opens the "Allow background activity"
- * / "Unrestricted" toggle for this specific app.
+ * Intent: action=android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, data=package:COM.XXX
+ * This opens a system dialog: "Allow [App] to always run in background? / Unrestricted"
+ * directly for this app — NOT the full list.
  */
 export async function requestIgnoreBatteryOptimization(): Promise<void> {
   if (Platform.OS !== 'android') return;
   const pkg = getPackageName();
 
-  // Primary: direct battery exemption dialog for this specific app
-  // This opens the "Allow background activity / Unrestricted" toggle directly
-  const ok = await openSettingsPage(
+  // Primary: direct battery exemption dialog for this app
+  const ok = await openAndroidSettingsPage(
     'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
     pkg
   );
   if (ok) return;
 
-  // Secondary: general battery optimization list (user finds app in list)
-  const ok2 = await openSettingsPage(
+  // Secondary: battery optimization settings list
+  const ok2 = await openAndroidSettingsPage(
     'android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS'
   );
   if (ok2) return;
 
   // Tertiary: app details page → Battery → Unrestricted
-  const ok3 = await openSettingsPage(
+  const ok3 = await openAndroidSettingsPage(
     'android.settings.APPLICATION_DETAILS_SETTINGS',
     pkg
   );
   if (ok3) return;
 
-  // Final fallback
   await Linking.openSettings().catch(() => {});
 }
 
@@ -277,13 +297,11 @@ export async function runStartupPermissionCheck(): Promise<PermissionResult> {
     batteryOptimization: true,
   };
 
-  // 1. Notification permission
   result.notifications = await checkNotificationPermission();
   if (!result.notifications) {
     result.notifications = await requestNotificationPermissionNative();
   }
 
-  // 2. Exact alarm (Android only)
   if (Platform.OS === 'android') {
     result.exactAlarm = await checkExactAlarmPermission();
   }
@@ -315,7 +333,7 @@ export function promptBatteryOptimization(
 
   Alert.alert(
     'Disable Battery Optimization',
-    'For reliable alarms when the app is closed:\n\n→ Tap "Open Settings"\n→ Select "Unrestricted" or "Allow"\n\nThis allows reminders to fire even when the app is killed.',
+    'For reliable alarms when the app is closed:\n\n→ Tap "Open Settings"\n→ Select "Unrestricted" or tap "Allow"\n\nThis allows Creatorz reminders to fire even when the app is killed.',
     [
       {
         text: 'Open Settings',
@@ -342,7 +360,7 @@ export function promptFullScreenIntent(
 
   Alert.alert(
     'Full-Screen Alarm Permission',
-    'Required for alarms to wake your screen and show over other apps.\n\n→ Tap "Open Settings"\n→ Enable "Allow full-screen intent notifications" for Creatorz',
+    'Required on Android 14+ for alarms to wake your screen.\n\n→ Tap "Open Settings"\n→ Find Creatorz in the list\n→ Enable "Allow full-screen intent notifications"',
     [
       {
         text: 'Open Settings',
@@ -358,11 +376,6 @@ export function promptFullScreenIntent(
 }
 
 // ─── Display Over Other Apps prompt ───────────────────────────────────────────
-/**
- * Prompts the user to grant SYSTEM_ALERT_WINDOW (Display Over Other Apps).
- * This is required for the AlarmModal to render over the lock screen when
- * the app is launched via a full-screen intent.
- */
 export function promptDisplayOverApps(
   onConfirm: () => void,
   onDismiss?: () => void
@@ -374,7 +387,7 @@ export function promptDisplayOverApps(
 
   Alert.alert(
     'Display Over Other Apps',
-    'Required for alarm popups to appear over your lock screen and other apps.\n\n→ Tap "Open Settings"\n→ Enable "Allow display over other apps" for Creatorz',
+    'Required for alarm popups to appear over your lock screen and other apps.\n\n→ Tap "Open Settings"\n→ Find Creatorz\n→ Enable "Allow display over other apps"',
     [
       {
         text: 'Open Settings',

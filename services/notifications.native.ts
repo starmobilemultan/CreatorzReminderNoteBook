@@ -1,40 +1,37 @@
 /**
  * notifications.native.ts — iOS & Android only
  *
- * KEY ARCHITECTURE DECISIONS:
+ * HOW ANDROID FULL-SCREEN INTENT ACTUALLY WORKS IN EXPO:
  *
- * POPUP vs FULLSCREEN separation:
- *   - POPUP: Uses `reminders` channel (HIGH importance, NO fullScreenIntent, NO bypassDnd)
- *     → Shows as a heads-up banner on top of whatever app is open
- *     → Does NOT bring the app to foreground automatically
- *     → User can dismiss or tap to open the app manually
+ * In expo-notifications (managed workflow), full-screen intent is triggered
+ * EXCLUSIVELY by the NOTIFICATION CHANNEL configuration, NOT by any content field.
  *
- *   - FULLSCREEN: Uses `reminders-high` channel (MAX importance, fullScreenIntent, bypassDnd)
- *     → Wakes the screen
- *     → Launches the app to foreground automatically (Android fullScreenIntent behavior)
- *     → Shows our AlarmModal full-screen overlay
- *     → Works even when app is killed (AlarmManager + fullScreenIntent)
+ * The content object does NOT have a `fullScreenIntent` property in the
+ * NotificationContentInput type. Setting `content.fullScreenIntent = true`
+ * does nothing — it's just ignored data. (Previous implementations incorrectly
+ * relied on this non-existent field.)
  *
- *   - BANNER: Uses `reminders` channel (HIGH importance)
- *     → Standard notification — no popup, no fullscreen
+ * WHAT ACTUALLY TRIGGERS FULL-SCREEN INTENT:
+ *   1. Channel importance = AndroidImportance.MAX  ← required
+ *   2. Channel bypassDnd = true                    ← required
+ *   3. USE_FULL_SCREEN_INTENT permission granted   ← required on Android 14+
+ *   4. App is NOT battery-optimized                ← required for background
+ *   5. SYSTEM_ALERT_WINDOW permission granted      ← required to show over lock
+ *
+ * When all of the above are met, Android automatically calls setFullScreenIntent()
+ * on the notification and launches the app's MainActivity. Our app then shows
+ * the AlarmModal over the current screen / lock screen.
+ *
+ * POPUP vs FULLSCREEN channel separation:
+ *   - POPUP: reminders channel (HIGH importance, NO bypassDnd)
+ *     → Heads-up banner on top of current app, does NOT launch app
+ *   - FULLSCREEN: reminders-high channel (MAX importance, bypassDnd=true)
+ *     → Wakes screen, launches app via fullScreenIntent, AlarmModal renders
+ *   - BANNER: reminders channel (HIGH importance, no modal)
  *
  * HIGH PRIORITY reminders:
- *   - If notificationStyle = 'popup' and priority = 'high' AND highPriorityFullscreen = true
- *     → Upgraded to fullscreen-reminder
- *   - Otherwise high priority popup stays as popup (banner heads-up, does NOT open app)
- *
- * ISSUE 2 FIX — Android notification content fields:
- *   Previously, Android-specific fields (channelId, fullScreenIntent, priority, etc.) were
- *   spread into the content object via a plain object spread `{...androidExtras}`. While
- *   expo-notifications does accept some of these as top-level fields, the key fields
- *   MUST be set correctly:
- *   - `channelId`: MUST match the versioned channel ID (e.g. reminders-high_v1)
- *   - `fullScreenIntent`: MUST be a top-level boolean, NOT inside data{}
- *   - The channel's importance=MAX + bypassDnd=true is what actually enables
- *     fullScreenIntent behavior on Android — the content flag reinforces it
- *
- * ISSUE 1 FIX — Permission intents:
- *   See permissions.native.ts — uses Linking.sendIntent() instead of intent:// URIs
+ *   notificationStyle='popup' + priority='high' + highPriorityFullscreen=true
+ *   → Upgraded to fullscreen-reminder (uses reminders-high channel)
  */
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
@@ -76,34 +73,24 @@ export function getAlarmChannelId(): string {
 }
 
 // ─── Foreground notification handler ─────────────────────────────────────────
-// NOTE: Called explicitly from ensureAndroidChannels / requestNotificationPermissions
-// to avoid crashing at module load time (top-level code that references
-// Notifications.AndroidNotificationPriority can fail if the native module
-// isn't fully ready, making the entire module return undefined and breaking
-// Expo Router's route component resolution).
+// Wrapped in a function (not top-level) to prevent module crash at load time.
 function registerNotificationHandler(): void {
   try {
     Notifications.setNotificationHandler({
-      handleNotification: async (notification) => {
-        const data = notification.request.content.data as any;
-        const type: string = data?.type ?? 'popup-reminder';
-        const isFullScreen = type === 'fullscreen-reminder';
-
-        return {
-          shouldShowAlert: true,
-          shouldPlaySound: true,
-          shouldSetBadge: false,
-          shouldShowBanner: true,
-          shouldShowList: true,
-        };
-      },
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
     });
   } catch (err) {
     console.warn('[Notifications] setNotificationHandler failed:', err);
   }
 }
 
-// Register handler on first import (wrapped in try/catch for safety)
+// Register on first import (safe — wrapped in try/catch)
 try { registerNotificationHandler(); } catch (_) {}
 
 // ─── Register notification categories ────────────────────────────────────────
@@ -130,6 +117,7 @@ async function deleteStaleChannels(currentVersion: number): Promise<void> {
     }
   }
 
+  // Also delete any non-versioned legacy channels
   for (const base of bases) {
     try {
       await Notifications.deleteNotificationChannelAsync(base);
@@ -144,15 +132,16 @@ export async function ensureAndroidChannels(
 ): Promise<void> {
   if (Platform.OS !== 'android') return;
 
-  // Re-register handler here so it's always active (safe to call multiple times)
   registerNotificationHandler();
-
   await deleteStaleChannels(_channelVersion);
 
-  // POPUP / BANNER channel (HIGH importance) — no fullScreenIntent, no bypassDnd
+  // ── POPUP / BANNER channel ──────────────────────────────────────────────────
+  // HIGH importance → shows heads-up banner over current app.
+  // bypassDnd=false → respects Do Not Disturb.
+  // Does NOT trigger fullScreenIntent → app is NOT launched automatically.
   await Notifications.setNotificationChannelAsync(versionedChannelId('reminders'), {
     name: 'Reminders',
-    description: 'Popup and banner reminder alerts — appears as a heads-up banner',
+    description: 'Popup and banner reminder alerts',
     importance: Notifications.AndroidImportance.HIGH,
     vibrationPattern: vibrationEnabled ? [0, 300, 200, 300] : undefined,
     lightColor: '#6366F1',
@@ -164,10 +153,15 @@ export async function ensureAndroidChannels(
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 
-  // FULLSCREEN / ALARM channel (MAX importance) — wakes screen, bypassDnd, fullScreenIntent
+  // ── FULLSCREEN / ALARM channel ──────────────────────────────────────────────
+  // MAX importance + bypassDnd=true → THIS is what triggers fullScreenIntent.
+  // Android automatically calls setFullScreenIntent() for MAX+bypassDnd channels.
+  // The app's MainActivity launches → AlarmModal renders over lock screen.
+  // REQUIRES: USE_FULL_SCREEN_INTENT permission (Android 14+)
+  //           SYSTEM_ALERT_WINDOW permission (for drawing over lock screen)
   await Notifications.setNotificationChannelAsync(versionedChannelId('reminders-high'), {
     name: 'Alarm Reminders',
-    description: 'Full-screen alarm alerts — wakes screen and bypasses Do Not Disturb',
+    description: 'Full-screen alarms — wakes screen, bypasses Do Not Disturb',
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: vibrationEnabled ? [0, 500, 300, 500, 300, 500] : undefined,
     lightColor: '#EF4444',
@@ -179,7 +173,8 @@ export async function ensureAndroidChannels(
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 
-  // PRE-REMINDER channel (DEFAULT importance)
+  // ── PRE-REMINDER channel ────────────────────────────────────────────────────
+  // DEFAULT importance → standard notification bar item, no heads-up banner.
   await Notifications.setNotificationChannelAsync(versionedChannelId('reminders-pre'), {
     name: 'Early Reminders',
     description: 'Advance notice before a reminder is due',
@@ -272,16 +267,10 @@ function shouldUseFullScreen(reminder: Reminder, settings: AppSettings): boolean
   return false;
 }
 
-// ─── Build notification content (FIXED) ──────────────────────────────────────
-// FIX: Android-specific fields are set as top-level properties on the content
-// object, NOT spread from a separate androidExtras dict. This ensures expo-
-// notifications correctly maps them to the underlying Android NotificationCompat
-// builder methods.
-//
-// KEY: channelId MUST be the versioned channel ID (e.g. reminders-high_v1)
-// KEY: fullScreenIntent must be a boolean at the top level of content (not in data{})
-// KEY: The CHANNEL's importance=MAX + bypassDnd=true is what enables fullScreenIntent;
-//      setting fullScreenIntent=true in the content reinforces it.
+// ─── Build notification content ───────────────────────────────────────────────
+// IMPORTANT: There is NO `fullScreenIntent` property in expo-notifications
+// NotificationContentInput. Do NOT set it on content — it does nothing.
+// Full-screen intent behavior comes entirely from the channel (MAX + bypassDnd).
 function buildContent(
   reminder: Reminder,
   settings: AppSettings,
@@ -308,49 +297,33 @@ function buildContent(
   };
 
   if (Platform.OS === 'android') {
-    // channelId — versioned to match the channel we created above
+    // channelId — MUST be the versioned channel ID created by ensureAndroidChannels
+    // For fullscreen: reminders-high_vN (MAX+bypassDnd → triggers fullScreenIntent)
+    // For popup/banner: reminders_vN (HIGH → heads-up banner only)
     content.channelId = ch;
 
-    // Color accent
     content.color = isFullScreen ? '#EF4444' : '#6366F1';
 
-    // Notification priority within the channel
     content.priority = isFullScreen
       ? Notifications.AndroidNotificationPriority.MAX
       : Notifications.AndroidNotificationPriority.HIGH;
 
-    // Show full notification on lock screen (not hidden/secret)
     content.lockscreenVisibility = Notifications.AndroidNotificationVisibility.PUBLIC;
-
-    // Auto-dismiss when tapped
     content.autoDismiss = true;
     content.sticky = false;
     content.ongoing = false;
 
-    // Vibration
-    if (!settings.vibrationEnabled) {
-      content.vibrationPattern = null;
-    } else if (isFullScreen) {
-      content.vibrationPattern = [0, 500, 300, 500, 300, 500];
-    } else {
-      content.vibrationPattern = [0, 300, 200, 300];
-    }
-
-    // FULLSCREEN ONLY: fullScreenIntent flag
-    // This + the channel's MAX importance + bypassDnd=true causes Android to:
-    // 1. Wake the screen
-    // 2. Launch our app's MainActivity via fullScreenIntent
-    // 3. Our app shows the AlarmModal over the lock screen
-    // NOTE: popup/banner must NOT have fullScreenIntent=true — it would open the app
-    if (isFullScreen) {
-      content.fullScreenIntent = true;
-    }
+    content.vibrationPattern = !settings.vibrationEnabled
+      ? null
+      : isFullScreen
+        ? [0, 500, 300, 500, 300, 500]
+        : [0, 300, 200, 300];
   }
 
   return content as Notifications.NotificationContentInput;
 }
 
-// ─── Monthly / yearly occurrence helpers ──────────────────────────────────────
+// ─── Monthly / yearly occurrence helpers ─────────────────────────────────────
 function getMonthlyOccurrences(from: Date, count: number): Date[] {
   const dates: Date[] = [];
   const now = new Date();
@@ -541,7 +514,7 @@ async function schedulePreNotification(
   }
 }
 
-// ─── Cancel all notifications for a reminder ──────────────────────────────────
+// ─── Cancel all notifications for a reminder ─────────────────────────────────
 export async function cancelReminderNotifications(reminderId: string): Promise<void> {
   const ids = [
     `reminder-${reminderId}`,
@@ -655,14 +628,9 @@ export async function snoozeReminder(
       snoozeContent.autoDismiss = true;
       snoozeContent.sticky = false;
       snoozeContent.ongoing = false;
-      if (useFullScreen) {
-        snoozeContent.fullScreenIntent = true;
-        snoozeContent.vibrationPattern =
-          settings.vibrationEnabled ? [0, 500, 300, 500, 300, 500] : null;
-      } else {
-        snoozeContent.vibrationPattern =
-          settings.vibrationEnabled ? [0, 300, 200, 300] : null;
-      }
+      snoozeContent.vibrationPattern = settings.vibrationEnabled
+        ? (useFullScreen ? [0, 500, 300, 500, 300, 500] : [0, 300, 200, 300])
+        : null;
     }
 
     await Notifications.scheduleNotificationAsync({
@@ -674,7 +642,9 @@ export async function snoozeReminder(
       },
     });
 
-    console.log(`[Notifications] Snoozed "${reminderTitle}" for ${snoozeMinutes} min | type=${notifType} | ch=${ch}`);
+    console.log(
+      `[Notifications] Snoozed "${reminderTitle}" for ${snoozeMinutes} min | type=${notifType} | ch=${ch}`
+    );
   } catch (err) {
     console.error('[Notifications] Snooze failed:', err);
   }
@@ -689,22 +659,16 @@ export async function getScheduledNotifications(): Promise<Notifications.Notific
   }
 }
 
-// ─── Test notification (FIXED) ────────────────────────────────────────────────
-/**
- * Schedules a test notification in 5 seconds using the CORRECT versioned channel
- * and correct Android content field placement.
- */
-export async function scheduleTestNotification(
-  settings: AppSettings
-): Promise<void> {
+// ─── Test notification ────────────────────────────────────────────────────────
+export async function scheduleTestNotification(settings: AppSettings): Promise<void> {
   await ensureAndroidChannels(settings.soundEnabled, settings.vibrationEnabled);
   await registerNotificationCategories();
 
   const isFullScreen = settings.notificationStyle === 'fullscreen';
   const notifType = isFullScreen ? 'fullscreen-reminder' : 'popup-reminder';
-
-  // Versioned channel ID — matches what was actually created by ensureAndroidChannels
-  const ch = isFullScreen ? versionedChannelId('reminders-high') : versionedChannelId('reminders');
+  const ch = isFullScreen
+    ? versionedChannelId('reminders-high')
+    : versionedChannelId('reminders');
 
   const testContent: any = {
     title: '🔔 Test Reminder',
@@ -729,14 +693,9 @@ export async function scheduleTestNotification(
     testContent.lockscreenVisibility = Notifications.AndroidNotificationVisibility.PUBLIC;
     testContent.autoDismiss = true;
     testContent.sticky = false;
-    if (isFullScreen) {
-      testContent.fullScreenIntent = true;
-      testContent.vibrationPattern =
-        settings.vibrationEnabled ? [0, 500, 300, 500, 300, 500] : null;
-    } else {
-      testContent.vibrationPattern =
-        settings.vibrationEnabled ? [0, 300, 200, 300] : null;
-    }
+    testContent.vibrationPattern = settings.vibrationEnabled
+      ? (isFullScreen ? [0, 500, 300, 500, 300, 500] : [0, 300, 200, 300])
+      : null;
   }
 
   await Notifications.scheduleNotificationAsync({

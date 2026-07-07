@@ -17,6 +17,7 @@
       }
     },
     "android": {
+      "package": "com.creatorz.remindernotes",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo.png",
         "backgroundColor": "#ffffff"
