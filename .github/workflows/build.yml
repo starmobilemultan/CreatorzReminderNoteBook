@@ -32,14 +32,6 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: eas whoami
 
-      - name: Configure EAS (if missing)
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: |
-          if [ ! -f eas.json ]; then
-            eas build:configure --non-interactive
-          fi
-
       - name: Run Expo Doctor
         run: npx expo-doctor || true
 
