@@ -20,8 +20,14 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Install Dependencies
-        run: npm install --legacy-peer-deps
+      - name: Clean Install Dependencies
+        run: |
+          rm -rf node_modules package-lock.json
+          npm cache clean --force
+          npm install
+      - name: Fix AJV Dependency
+        run: |
+          npm install ajv@8 ajv-keywords@5 --save-dev
 
       - name: Install Expo CLI & EAS CLI
         run: |
