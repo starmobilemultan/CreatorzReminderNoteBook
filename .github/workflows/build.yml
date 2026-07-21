@@ -18,32 +18,19 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "20"
+          cache: "npm"
 
-      - name: Clean Install Dependencies
-        run: |
-          rm -rf node_modules package-lock.json
-          npm cache clean --force
-          npm install
-      - name: Fix AJV Dependency
-        run: |
-          npm install ajv@8 ajv-keywords@5 --save-dev
+      - name: Install Dependencies
+        run: npm install
 
-      - name: Install Expo CLI & EAS CLI
-        run: |
-          npm install -g expo-cli eas-cli
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
 
       - name: Verify Expo Login
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: eas whoami
-
-      - name: Run Expo Doctor
-        run: npx expo-doctor || true
-
-      - name: Debug Expo Config
-        run: |
-          npx expo config
 
       - name: Build Android APK
         env:
