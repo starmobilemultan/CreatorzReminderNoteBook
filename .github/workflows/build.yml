@@ -37,7 +37,7 @@ jobs:
 
       - name: Debug Expo Config
         run: |
-         npx expo config
+          npx expo config
 
       - name: Build Android APK
         env:
