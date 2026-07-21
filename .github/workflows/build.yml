@@ -35,6 +35,10 @@ jobs:
       - name: Run Expo Doctor
         run: npx expo-doctor || true
 
+      - name: Debug Expo Config
+        run: |
+         npx expo config
+
       - name: Build Android APK
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
