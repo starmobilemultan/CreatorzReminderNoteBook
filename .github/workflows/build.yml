@@ -35,13 +35,14 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: eas whoami
 
-      - name: Auto Configure EAS Project
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      - name: Create .eas/project.json
         run: |
-          if [ ! -f .eas/project.json ]; then
-            eas project:init --non-interactive || eas init
-          fi
+          mkdir -p .eas
+          cat > .eas/project.json << EOF
+          {
+            "projectId": "1b684cdd-aab1-4472-8654-c8cfd7cd478c"
+          }
+          EOF
 
       - name: Build Android APK
         env:
