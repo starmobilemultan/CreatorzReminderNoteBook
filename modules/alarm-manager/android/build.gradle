@@ -26,21 +26,19 @@ android {
     }
 }
 
-// DO NOT declare a repositories {} block here.
-// Gradle 8+ treats a project-level repositories block as overriding the
-// settings.gradle dependencyResolutionManagement block, which loses the
-// EAS internal Maven cache and causes "no versions available" errors.
-// All repositories are inherited from the root project via settings.gradle.
-
 dependencies {
-    // expo-modules-core is provided by the host Expo app — compile-only.
-    // Use 2.+ to match any expo-modules-core 2.x release (currently 2.4.0).
-    compileOnly "expo.modules:expo-modules-core:2.+"
-
-    // React Native — provided by the host app
+    // ─────────────────────────────────────────────────────────────────────────
+    // CRITICAL: Do NOT declare expo-modules-core as a Maven dependency.
+    // Expo SDK 53 local modules receive expo-modules-core through autolinked
+    // module resolution (expo-modules-autolinking) at build time.
+    // The host app provides expo-modules-core; we only declare it as compileOnly
+    // to satisfy the compiler when building this library.
+    // ─────────────────────────────────────────────────────────────────────────
+    
+    // Provided by expo-modules-autolinking + host app (Expo SDK 53)
     compileOnly 'com.facebook.react:react-android:0.79.+'
-
-    // AndroidX
+    
+    // Standard Android/Kotlin libraries — provided at runtime by host app
     implementation "androidx.core:core-ktx:1.13.1"
     implementation "androidx.appcompat:appcompat:1.7.0"
 }
