@@ -36,13 +36,60 @@ class AlarmReceiver : BroadcastReceiver() {
     // 1. Acquire WakeLock — keeps CPU alive during alarm display
     acquireWakeLock(context)
 
-    // 2. Ensure notification channel exists
+    // 2. Persist alarm data to SharedPreferences (read by RN on app launch)
+    persistPendingAlarm(context, alarmId, title, body, priority, extra)
+
+    // 3. Ensure notification channel exists
     createAlarmChannel(context)
 
-    // 3. Launch AlarmActivity via Full-Screen Intent
+    // 4. Start foreground service to keep CPU alive
+    startForegroundService(context, title, body)
+
+    // 5. Launch AlarmActivity via Full-Screen Intent
     launchAlarmActivity(context, alarmId, title, body, priority, extra)
 
     Log.d("CreatorzAlarm", "✅ Alarm fired: $alarmId | priority=$priority")
+  }
+
+  private fun persistPendingAlarm(
+    context: Context,
+    alarmId: String,
+    title: String,
+    body: String,
+    priority: String,
+    extra: String
+  ) {
+    try {
+      val prefs = context.getSharedPreferences(AlarmManagerModule.PREFS_NAME, Context.MODE_PRIVATE)
+      prefs.edit()
+        .putString(AlarmManagerModule.KEY_PENDING_ALARM_ID, alarmId)
+        .putString(AlarmManagerModule.KEY_PENDING_ALARM_TITLE, title)
+        .putString(AlarmManagerModule.KEY_PENDING_ALARM_BODY, body)
+        .putString(AlarmManagerModule.KEY_PENDING_ALARM_PRIORITY, priority)
+        .putString(AlarmManagerModule.KEY_PENDING_ALARM_EXTRA, extra)
+        .putLong(AlarmManagerModule.KEY_PENDING_ALARM_TIME, System.currentTimeMillis())
+        .apply()
+      Log.d("CreatorzAlarm", "💾 Pending alarm persisted: $alarmId")
+    } catch (e: Exception) {
+      Log.e("CreatorzAlarm", "Failed to persist pending alarm: ${e.message}")
+    }
+  }
+
+  private fun startForegroundService(context: Context, title: String, body: String) {
+    try {
+      val serviceIntent = Intent(context, AlarmForegroundService::class.java).apply {
+        putExtra(AlarmForegroundService.EXTRA_TITLE, title)
+        putExtra(AlarmForegroundService.EXTRA_BODY, body)
+      }
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        context.startForegroundService(serviceIntent)
+      } else {
+        context.startService(serviceIntent)
+      }
+      Log.d("CreatorzAlarm", "🚀 ForegroundService started")
+    } catch (e: Exception) {
+      Log.e("CreatorzAlarm", "Failed to start ForegroundService: ${e.message}")
+    }
   }
 
   private fun acquireWakeLock(context: Context) {

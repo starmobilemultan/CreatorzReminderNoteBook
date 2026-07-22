@@ -66,7 +66,7 @@
 
     "plugins": [
       "expo-router",
-      "./modules/alarm-manager/plugin",
+      "./modules/alarm-manager",
       [
         "expo-splash-screen",
         {

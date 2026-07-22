@@ -1,3 +1,12 @@
+/**
+ * modules/alarm-manager/index.ts
+ *
+ * JavaScript bridge to the native CreatorzAlarmManager Kotlin module.
+ * Uses expo-modules-core's requireNativeModule to load the native module.
+ *
+ * All functions are no-ops / stubs when running on non-Android platforms
+ * (handled by metro resolving index.web.ts for web).
+ */
 import { requireNativeModule } from 'expo-modules-core';
 
 export interface AlarmData {
@@ -20,47 +29,59 @@ export interface PendingAlarmResult {
 
 const AlarmManagerNative = requireNativeModule('CreatorzAlarmManager');
 
+/**
+ * Schedule a real Android AlarmManager alarm.
+ * Uses setAlarmClock() which is Doze-exempt and shown in the Android status bar.
+ */
 export async function scheduleNativeAlarm(alarm: AlarmData): Promise<void> {
-  return AlarmManagerNative.scheduleAlarm(
-    alarm.id,
-    alarm.triggerTimeMs,
-    alarm.title,
-    alarm.body,
-    alarm.priority,
-    alarm.extra
-  );
+  return AlarmManagerNative.scheduleNativeAlarm({
+    id: alarm.id,
+    triggerTimeMs: alarm.triggerTimeMs,
+    title: alarm.title,
+    body: alarm.body,
+    priority: alarm.priority,
+    extra: alarm.extra,
+  });
 }
 
+/**
+ * Cancel a scheduled alarm by its ID.
+ */
 export async function cancelNativeAlarm(alarmId: string): Promise<void> {
-  return AlarmManagerNative.cancelAlarm(alarmId);
+  return AlarmManagerNative.cancelNativeAlarm(alarmId);
 }
 
-export async function cancelAllNativeAlarms(alarmIds: string[]): Promise<void> {
-  if (alarmIds.length === 0) return;
-  return AlarmManagerNative.cancelAllAlarms(alarmIds);
-}
-
+/**
+ * Check whether the app can schedule exact alarms (Android 12+ requirement).
+ * Returns true on Android < 12 where no special permission is needed.
+ */
 export async function canScheduleExactAlarms(): Promise<boolean> {
   return AlarmManagerNative.canScheduleExactAlarms();
 }
 
+/**
+ * Persist the full alarm list to SharedPreferences so BootReceiver can
+ * restore all alarms after a device reboot.
+ */
 export async function persistAlarms(alarms: AlarmData[]): Promise<void> {
-  return AlarmManagerNative.persistAlarms(JSON.stringify(alarms));
-}
-
-export async function getPersistedAlarms(): Promise<AlarmData[]> {
-  const json: string = await AlarmManagerNative.getPersistedAlarms();
-  try {
-    return JSON.parse(json) as AlarmData[];
-  } catch {
-    return [];
-  }
+  // Pass as a plain JS array — expo-modules-core serializes it to List<Map<String,Any>>
+  return AlarmManagerNative.persistAlarms(
+    alarms.map(a => ({
+      id: a.id,
+      triggerTimeMs: a.triggerTimeMs,
+      title: a.title,
+      body: a.body,
+      priority: a.priority,
+      extra: a.extra,
+    }))
+  );
 }
 
 /**
  * Returns the alarm that fired and launched the app (via AlarmActivity).
+ * The result is a JSON string parsed into PendingAlarmResult.
  * Returns null if no pending alarm exists or it is stale (> 60 seconds old).
- * Automatically clears the pending alarm after reading.
+ * The pending alarm is automatically cleared after reading (one-shot).
  */
 export async function getPendingAlarm(): Promise<PendingAlarmResult | null> {
   try {
@@ -72,6 +93,9 @@ export async function getPendingAlarm(): Promise<PendingAlarmResult | null> {
   }
 }
 
+/**
+ * Manually clear the pending alarm SharedPreferences entry.
+ */
 export async function clearPendingAlarm(): Promise<void> {
   return AlarmManagerNative.clearPendingAlarm();
 }

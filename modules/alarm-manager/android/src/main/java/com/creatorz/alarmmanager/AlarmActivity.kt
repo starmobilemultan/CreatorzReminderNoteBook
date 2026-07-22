@@ -39,14 +39,14 @@ class AlarmActivity : Activity() {
     Log.d("CreatorzAlarm", "AlarmActivity: alarmId=$alarmId title=$title priority=$priority")
 
     // Store alarm data in SharedPreferences so React Native can pick it up
-    val prefs = getSharedPreferences("creatorz_pending_alarm", Context.MODE_PRIVATE)
+    val prefs = getSharedPreferences(AlarmManagerModule.PREFS_NAME, Context.MODE_PRIVATE)
     prefs.edit()
-      .putString("pending_alarm_id", alarmId)
-      .putString("pending_alarm_title", title)
-      .putString("pending_alarm_body", body)
-      .putString("pending_alarm_priority", priority)
-      .putString("pending_alarm_extra", extra)
-      .putLong("pending_alarm_time", System.currentTimeMillis())
+      .putString(AlarmManagerModule.KEY_PENDING_ALARM_ID, alarmId)
+      .putString(AlarmManagerModule.KEY_PENDING_ALARM_TITLE, title)
+      .putString(AlarmManagerModule.KEY_PENDING_ALARM_BODY, body)
+      .putString(AlarmManagerModule.KEY_PENDING_ALARM_PRIORITY, priority)
+      .putString(AlarmManagerModule.KEY_PENDING_ALARM_EXTRA, extra)
+      .putLong(AlarmManagerModule.KEY_PENDING_ALARM_TIME, System.currentTimeMillis())
       .apply()
 
     // Launch the main React Native activity to bring the app to foreground
