@@ -24,8 +24,6 @@ const blockListPatterns = [
   /modules[\/\\]alarm-manager[\/\\]app\.plugin\.js$/,
 ];
 
-const { exclusionList } = require('metro-config');
-
 // ── Packages that need to be transformed by Babel ────────────────────────────
 const PACKAGES_TO_TRANSFORM = [
   '@expo/metro-runtime',
@@ -56,13 +54,6 @@ const PACKAGES_TO_TRANSFORM = [
   'react-native-paper',
 ];
 
-// Merge blockList with any existing exclusions from the default config
-const defaultBlockList = config.resolver?.blockList;
-const mergedBlockList = exclusionList([
-  ...blockListPatterns,
-  ...(Array.isArray(defaultBlockList) ? defaultBlockList : defaultBlockList ? [defaultBlockList] : []),
-]);
-
 config.transformer = {
   ...config.transformer,
   transformIgnorePatterns: [
@@ -78,7 +69,7 @@ config.resolver = {
     'cjs',
   ],
   unstable_enablePackageExports: true,
-  blockList: mergedBlockList,
+  blockList: blockListPatterns,
   // Resolve local modules directory
   nodeModulesPaths: [
     path.resolve(__dirname, 'node_modules'),
