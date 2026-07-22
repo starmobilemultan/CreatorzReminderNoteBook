@@ -4,6 +4,8 @@
  * Expo SDK 53 resolves this file automatically when app.json references
  * "./modules/alarm-manager" as a plugin. This is the standard entry point
  * convention for all Expo config plugins.
+ *
+ * Node.js CJS compatible — no ESM syntax.
  */
 
 'use strict';

@@ -24,8 +24,15 @@ jobs:
           node-version: "24"
           cache: "pnpm"
 
-      - name: Install Dependencies
+      - name: Install Root Dependencies
         run: pnpm install --no-frozen-lockfile
+
+      - name: Install Local Module Dependencies
+        # Ensures @expo/config-plugins is resolvable from modules/alarm-manager/
+        # Required for pnpm strict isolation mode (deps are NOT auto-hoisted)
+        run: |
+          cd modules/alarm-manager
+          npm install --no-package-lock
 
       - name: Install EAS CLI
         run: pnpm add -g eas-cli

@@ -8,5 +8,8 @@
   "peerDependencies": {
     "expo": "*",
     "expo-modules-core": "*"
+  },
+  "devDependencies": {
+    "@expo/config-plugins": "^9.0.0"
   }
 }
