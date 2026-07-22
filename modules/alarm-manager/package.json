@@ -5,14 +5,8 @@
   "main": "app.plugin.js",
   "plugin": "app.plugin.js",
   "keywords": ["expo", "expo-module", "android", "alarm", "alarmmanager"],
-  "repository": {
-    "type": "git"
-  },
   "peerDependencies": {
     "expo": "*",
     "expo-modules-core": "*"
-  },
-  "devDependencies": {
-    "@expo/config-plugins": "^9.0.0"
   }
 }

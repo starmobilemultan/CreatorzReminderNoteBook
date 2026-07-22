@@ -1,52 +1,28 @@
 /**
- * plugin.js — Full Config Plugin implementation for creatorz-alarm-manager
+ * plugin.js — Config Plugin implementation for creatorz-alarm-manager
  *
- * Resolves @expo/config-plugins from the project root node_modules (standard
- * EAS Build layout) with a fallback to local resolution. This makes the plugin
- * work both in local development and in EAS Cloud Build environments.
+ * Uses the standard require('@expo/config-plugins') pattern identical to all
+ * official Expo SDK plugins (expo-notifications, expo-local-authentication, etc.).
+ *
+ * @expo/config-plugins is a DIRECT dependency of the `expo` package and is
+ * always available in node_modules when `expo` is installed. No custom path
+ * resolution is needed or wanted — it causes more problems than it solves.
  */
 
-// ─── Resolve @expo/config-plugins from project root ──────────────────────────
-// EAS Build installs all dependencies at the project root. The local module's
-// devDependency on @expo/config-plugins is only for type hints; at runtime we
-// must resolve it from wherever Expo's own prebuild installed it.
-let configPlugins;
-try {
-  // Try resolving from the project root (standard path in EAS Build)
-  configPlugins = require('@expo/config-plugins');
-} catch (e1) {
-  try {
-    // Fallback: resolve relative to this file's location
-    const path = require('path');
-    const resolved = require.resolve('@expo/config-plugins', {
-      paths: [
-        path.resolve(__dirname, '../../node_modules'),
-        path.resolve(__dirname, '../../../node_modules'),
-        path.resolve(__dirname),
-      ],
-    });
-    configPlugins = require(resolved);
-  } catch (e2) {
-    throw new Error(
-      `[creatorz-alarm-manager] Cannot resolve @expo/config-plugins.\n` +
-      `Make sure @expo/config-plugins is installed in your project root:\n` +
-      `  npx expo install @expo/config-plugins\n\n` +
-      `Original error: ${e2.message}`
-    );
-  }
-}
+'use strict';
 
-const { withAndroidManifest, withAppBuildGradle, withSettingsGradle } = configPlugins;
+const { withAndroidManifest, withAppBuildGradle, withSettingsGradle } =
+  require('@expo/config-plugins');
 
 // ─── withAlarmManagerManifest ────────────────────────────────────────────────
 /**
  * Injects all required native Android components into AndroidManifest.xml:
  *   - AlarmReceiver        (BroadcastReceiver — fired by AlarmManager)
- *   - AlarmDismissReceiver (BroadcastReceiver — handles dismiss/snooze actions)
+ *   - AlarmDismissReceiver (BroadcastReceiver — handles dismiss/snooze)
  *   - BootReceiver         (BroadcastReceiver — restores alarms after reboot)
  *   - AlarmActivity        (Activity — full-screen intent over lock screen)
  *   - AlarmForegroundService (Service — keeps CPU alive during alarm)
- * Also ensures all required permissions are declared.
+ * Also declares all required Android permissions.
  */
 function withAlarmManagerManifest(config) {
   return withAndroidManifest(config, (config) => {
@@ -55,11 +31,11 @@ function withAlarmManagerManifest(config) {
     if (!application) return config;
 
     // ── AlarmReceiver ──────────────────────────────────────────────────────
-    const hasAlarmReceiver = (application.receiver || []).some(
+    if (!application.receiver) application.receiver = [];
+    const hasAlarmReceiver = application.receiver.some(
       (r) => r.$?.['android:name'] === 'com.creatorz.alarmmanager.AlarmReceiver'
     );
     if (!hasAlarmReceiver) {
-      if (!application.receiver) application.receiver = [];
       application.receiver.push({
         $: {
           'android:name': 'com.creatorz.alarmmanager.AlarmReceiver',
@@ -75,11 +51,10 @@ function withAlarmManagerManifest(config) {
     }
 
     // ── AlarmDismissReceiver ───────────────────────────────────────────────
-    const hasDismissReceiver = (application.receiver || []).some(
+    const hasDismissReceiver = application.receiver.some(
       (r) => r.$?.['android:name'] === 'com.creatorz.alarmmanager.AlarmDismissReceiver'
     );
     if (!hasDismissReceiver) {
-      if (!application.receiver) application.receiver = [];
       application.receiver.push({
         $: {
           'android:name': 'com.creatorz.alarmmanager.AlarmDismissReceiver',
@@ -95,11 +70,10 @@ function withAlarmManagerManifest(config) {
     }
 
     // ── BootReceiver ───────────────────────────────────────────────────────
-    const hasBootReceiver = (application.receiver || []).some(
+    const hasBootReceiver = application.receiver.some(
       (r) => r.$?.['android:name'] === 'com.creatorz.alarmmanager.BootReceiver'
     );
     if (!hasBootReceiver) {
-      if (!application.receiver) application.receiver = [];
       application.receiver.push({
         $: {
           'android:name': 'com.creatorz.alarmmanager.BootReceiver',
@@ -122,11 +96,11 @@ function withAlarmManagerManifest(config) {
     }
 
     // ── AlarmActivity (FullScreenIntent target) ────────────────────────────
-    const hasAlarmActivity = (application.activity || []).some(
+    if (!application.activity) application.activity = [];
+    const hasAlarmActivity = application.activity.some(
       (a) => a.$?.['android:name'] === 'com.creatorz.alarmmanager.AlarmActivity'
     );
     if (!hasAlarmActivity) {
-      if (!application.activity) application.activity = [];
       application.activity.push({
         $: {
           'android:name': 'com.creatorz.alarmmanager.AlarmActivity',
@@ -144,11 +118,11 @@ function withAlarmManagerManifest(config) {
     }
 
     // ── AlarmForegroundService ─────────────────────────────────────────────
-    const hasForegroundService = (application.service || []).some(
+    if (!application.service) application.service = [];
+    const hasForegroundService = application.service.some(
       (s) => s.$?.['android:name'] === 'com.creatorz.alarmmanager.AlarmForegroundService'
     );
     if (!hasForegroundService) {
-      if (!application.service) application.service = [];
       application.service.push({
         $: {
           'android:name': 'com.creatorz.alarmmanager.AlarmForegroundService',
@@ -177,15 +151,14 @@ function withAlarmManagerManifest(config) {
       'android.permission.REQUEST_SCHEDULE_EXACT_ALARM',
     ];
 
+    if (!manifest.manifest['uses-permission']) {
+      manifest.manifest['uses-permission'] = [];
+    }
     const existingPerms = new Set(
-      (manifest.manifest['uses-permission'] || []).map((p) => p.$?.['android:name'])
+      manifest.manifest['uses-permission'].map((p) => p.$?.['android:name'])
     );
-
     for (const perm of requiredPermissions) {
       if (!existingPerms.has(perm)) {
-        if (!manifest.manifest['uses-permission']) {
-          manifest.manifest['uses-permission'] = [];
-        }
         manifest.manifest['uses-permission'].push({ $: { 'android:name': perm } });
       }
     }
@@ -197,20 +170,21 @@ function withAlarmManagerManifest(config) {
 // ─── withAlarmManagerSettings ─────────────────────────────────────────────────
 /**
  * Registers the local Gradle module in android/settings.gradle so Gradle
- * knows the :creatorz-alarm-manager project path during build.
+ * resolves :creatorz-alarm-manager during the build.
  */
 function withAlarmManagerSettings(config) {
   return withSettingsGradle(config, (config) => {
     const contents = config.modResults.contents;
-    const include = [
-      ``,
-      `// creatorz-alarm-manager — native Android alarm engine`,
-      `include ':creatorz-alarm-manager'`,
-      `project(':creatorz-alarm-manager').projectDir = new File(rootProject.projectDir, '../modules/alarm-manager/android')`,
-    ].join('\n');
-
     if (!contents.includes('creatorz-alarm-manager')) {
-      config.modResults.contents = contents + include + '\n';
+      config.modResults.contents =
+        contents +
+        [
+          '',
+          '// creatorz-alarm-manager — native Android alarm engine',
+          "include ':creatorz-alarm-manager'",
+          "project(':creatorz-alarm-manager').projectDir = new File(rootProject.projectDir, '../modules/alarm-manager/android')",
+          '',
+        ].join('\n');
     }
     return config;
   });
@@ -224,13 +198,10 @@ function withAlarmManagerSettings(config) {
 function withAlarmManagerBuildGradle(config) {
   return withAppBuildGradle(config, (config) => {
     const contents = config.modResults.contents;
-    const dep = `    implementation project(':creatorz-alarm-manager')`;
-
     if (!contents.includes('creatorz-alarm-manager')) {
-      // Insert as first line inside the dependencies {} block
       config.modResults.contents = contents.replace(
         /(\bdependencies\s*\{)/,
-        `$1\n${dep}`
+        `$1\n    implementation project(':creatorz-alarm-manager')`
       );
     }
     return config;
