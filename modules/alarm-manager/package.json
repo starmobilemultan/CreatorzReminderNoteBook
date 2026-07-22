@@ -2,7 +2,7 @@
   "name": "creatorz-alarm-manager",
   "version": "1.0.0",
   "description": "Native Android AlarmManager module for Creatorz — provides real alarm behavior (setAlarmClock, WakeLock, FullScreenIntent, BootReceiver)",
-  "main": "index.ts",
+  "main": "app.plugin.js",
   "plugin": "app.plugin.js",
   "keywords": ["expo", "expo-module", "android", "alarm", "alarmmanager"],
   "repository": {
