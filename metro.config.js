@@ -15,6 +15,17 @@ const path = require('path');
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(__dirname);
 
+// ── Block Config Plugin files from Metro bundling ─────────────────────────────
+// plugin.js and app.plugin.js are Node.js Expo Config Plugin scripts that run
+// only during prebuild. They use dynamic require() / Node.js APIs that are
+// incompatible with Metro's static analysis. Exclude them from the JS bundle.
+const blockListPatterns = [
+  /modules[\/\\]alarm-manager[\/\\]plugin\.js$/,
+  /modules[\/\\]alarm-manager[\/\\]app\.plugin\.js$/,
+];
+
+const { exclusionList } = require('metro-config');
+
 // ── Packages that need to be transformed by Babel ────────────────────────────
 const PACKAGES_TO_TRANSFORM = [
   '@expo/metro-runtime',
@@ -45,6 +56,13 @@ const PACKAGES_TO_TRANSFORM = [
   'react-native-paper',
 ];
 
+// Merge blockList with any existing exclusions from the default config
+const defaultBlockList = config.resolver?.blockList;
+const mergedBlockList = exclusionList([
+  ...blockListPatterns,
+  ...(Array.isArray(defaultBlockList) ? defaultBlockList : defaultBlockList ? [defaultBlockList] : []),
+]);
+
 config.transformer = {
   ...config.transformer,
   transformIgnorePatterns: [
@@ -60,6 +78,7 @@ config.resolver = {
     'cjs',
   ],
   unstable_enablePackageExports: true,
+  blockList: mergedBlockList,
   // Resolve local modules directory
   nodeModulesPaths: [
     path.resolve(__dirname, 'node_modules'),
