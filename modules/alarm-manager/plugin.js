@@ -1,5 +1,8 @@
 /**
  * plugin.js — Config Plugin implementation for creatorz-alarm-manager
+ * 
+ * Expo SDK 53 compatible — injects all required native components and permissions
+ * into AndroidManifest.xml during the prebuild phase.
  *
  * RESOLUTION STRATEGY (pnpm + EAS Build + GitHub Actions compatible):
  *
@@ -58,8 +61,6 @@ function resolveConfigPlugins() {
 
 var configPlugins = resolveConfigPlugins();
 var withAndroidManifest = configPlugins.withAndroidManifest;
-var withAppBuildGradle = configPlugins.withAppBuildGradle;
-var withSettingsGradle = configPlugins.withSettingsGradle;
 
 // ─── withAlarmManagerManifest ────────────────────────────────────────────────
 /**
@@ -69,7 +70,11 @@ var withSettingsGradle = configPlugins.withSettingsGradle;
  *   - BootReceiver         (BroadcastReceiver — restores alarms after reboot)
  *   - AlarmActivity        (Activity — full-screen intent over lock screen)
  *   - AlarmForegroundService (Service — keeps CPU alive during alarm)
- * Also declares all required Android permissions.
+ *
+ * Also declares all required Android permissions:
+ *   - SCHEDULE_EXACT_ALARM (Android 12+)
+ *   - RECEIVE_BOOT_COMPLETED
+ *   - WAKE_LOCK
  */
 function withAlarmManagerManifest(config) {
   return withAndroidManifest(config, function(config) {
@@ -77,184 +82,124 @@ function withAlarmManagerManifest(config) {
     var application = manifest.manifest.application && manifest.manifest.application[0];
     if (!application) return config;
 
-    // ── AlarmReceiver ──────────────────────────────────────────────────────
-    if (!application.receiver) application.receiver = [];
-    var hasAlarmReceiver = application.receiver.some(function(r) {
-      return r.$ && r.$['android:name'] === 'com.creatorz.alarmmanager.AlarmReceiver';
-    });
-    if (!hasAlarmReceiver) {
-      application.receiver.push({
-        $: {
-          'android:name': 'com.creatorz.alarmmanager.AlarmReceiver',
-          'android:exported': 'false',
-          'android:directBootAware': 'true',
-        },
-        'intent-filter': [
-          { action: [{ $: { 'android:name': 'com.creatorz.ALARM_FIRE' } }] },
-        ],
-      });
-    }
-
-    // ── AlarmDismissReceiver ───────────────────────────────────────────────
-    var hasDismissReceiver = application.receiver.some(function(r) {
-      return r.$ && r.$['android:name'] === 'com.creatorz.alarmmanager.AlarmDismissReceiver';
-    });
-    if (!hasDismissReceiver) {
-      application.receiver.push({
-        $: {
-          'android:name': 'com.creatorz.alarmmanager.AlarmDismissReceiver',
-          'android:exported': 'false',
-          'android:directBootAware': 'true',
-        },
-        'intent-filter': [
-          { action: [{ $: { 'android:name': 'com.creatorz.ALARM_DISMISS' } }] },
-        ],
-      });
-    }
-
-    // ── BootReceiver ───────────────────────────────────────────────────────
-    var hasBootReceiver = application.receiver.some(function(r) {
-      return r.$ && r.$['android:name'] === 'com.creatorz.alarmmanager.BootReceiver';
-    });
-    if (!hasBootReceiver) {
-      application.receiver.push({
-        $: {
-          'android:name': 'com.creatorz.alarmmanager.BootReceiver',
-          'android:exported': 'true',
-          'android:directBootAware': 'true',
-          'android:enabled': 'true',
-        },
-        'intent-filter': [
-          {
-            $: { 'android:priority': '999' },
-            action: [
-              { $: { 'android:name': 'android.intent.action.BOOT_COMPLETED' } },
-              { $: { 'android:name': 'android.intent.action.QUICKBOOT_POWERON' } },
-              { $: { 'android:name': 'com.htc.intent.action.QUICKBOOT_POWERON' } },
-              { $: { 'android:name': 'android.intent.action.LOCKED_BOOT_COMPLETED' } },
-            ],
-          },
-        ],
-      });
-    }
-
-    // ── AlarmActivity (FullScreenIntent target) ────────────────────────────
-    if (!application.activity) application.activity = [];
-    var hasAlarmActivity = application.activity.some(function(a) {
-      return a.$ && a.$['android:name'] === 'com.creatorz.alarmmanager.AlarmActivity';
-    });
-    if (!hasAlarmActivity) {
-      application.activity.push({
-        $: {
-          'android:name': 'com.creatorz.alarmmanager.AlarmActivity',
-          'android:exported': 'false',
-          'android:theme': '@android:style/Theme.Translucent.NoTitleBar',
-          'android:showWhenLocked': 'true',
-          'android:turnScreenOn': 'true',
-          'android:taskAffinity': '',
-          'android:excludeFromRecents': 'true',
-          'android:launchMode': 'singleInstance',
-          'android:directBootAware': 'true',
-          'android:screenOrientation': 'portrait',
-        },
-      });
-    }
-
-    // ── AlarmForegroundService ─────────────────────────────────────────────
-    if (!application.service) application.service = [];
-    var hasForegroundService = application.service.some(function(s) {
-      return s.$ && s.$['android:name'] === 'com.creatorz.alarmmanager.AlarmForegroundService';
-    });
-    if (!hasForegroundService) {
-      application.service.push({
-        $: {
-          'android:name': 'com.creatorz.alarmmanager.AlarmForegroundService',
-          'android:exported': 'false',
-          'android:foregroundServiceType': 'specialUse',
-          'android:directBootAware': 'true',
-        },
-      });
-    }
-
-    // ── Permissions ────────────────────────────────────────────────────────
-    var requiredPermissions = [
-      'android.permission.RECEIVE_BOOT_COMPLETED',
-      'android.permission.USE_EXACT_ALARM',
-      'android.permission.SCHEDULE_EXACT_ALARM',
-      'android.permission.WAKE_LOCK',
-      'android.permission.DISABLE_KEYGUARD',
-      'android.permission.USE_FULL_SCREEN_INTENT',
-      'android.permission.FOREGROUND_SERVICE',
-      'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
-      'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
-      'android.permission.POST_NOTIFICATIONS',
-      'android.permission.SYSTEM_ALERT_WINDOW',
-      'android.permission.ACCESS_NOTIFICATION_POLICY',
-      'android.permission.VIBRATE',
-      'android.permission.REQUEST_SCHEDULE_EXACT_ALARM',
-    ];
-
+    // ── Permissions ────────────────────────────────────────────────────────────
     if (!manifest.manifest['uses-permission']) {
       manifest.manifest['uses-permission'] = [];
     }
+    var permissions = manifest.manifest['uses-permission'];
 
-    var existingPerms = {};
-    manifest.manifest['uses-permission'].forEach(function(p) {
-      if (p.$ && p.$['android:name']) existingPerms[p.$['android:name']] = true;
-    });
-
-    for (var i = 0; i < requiredPermissions.length; i++) {
-      if (!existingPerms[requiredPermissions[i]]) {
-        manifest.manifest['uses-permission'].push({ $: { 'android:name': requiredPermissions[i] } });
+    function addPermissionIfMissing(name) {
+      if (!permissions.some(function(p) { return p.$['android:name'] === name; })) {
+        permissions.push({ $: { 'android:name': name } });
       }
     }
 
-    return config;
-  });
-}
+    addPermissionIfMissing('android.permission.SCHEDULE_EXACT_ALARM');
+    addPermissionIfMissing('android.permission.RECEIVE_BOOT_COMPLETED');
+    addPermissionIfMissing('android.permission.WAKE_LOCK');
+    addPermissionIfMissing('android.permission.POST_NOTIFICATIONS');
+    addPermissionIfMissing('android.permission.FOREGROUND_SERVICE');
+    addPermissionIfMissing('android.permission.FOREGROUND_SERVICE_SPECIAL_USE');
 
-// ─── withAlarmManagerSettings ─────────────────────────────────────────────────
-/**
- * Registers the local Gradle module in android/settings.gradle so Gradle
- * resolves :creatorz-alarm-manager during the build.
- */
-function withAlarmManagerSettings(config) {
-  return withSettingsGradle(config, function(config) {
-    var contents = config.modResults.contents;
-    if (contents.indexOf('creatorz-alarm-manager') === -1) {
-      config.modResults.contents =
-        contents +
-        '\n' +
-        '// creatorz-alarm-manager — native Android alarm engine\n' +
-        "include ':creatorz-alarm-manager'\n" +
-        "project(':creatorz-alarm-manager').projectDir = new File(rootProject.projectDir, '../modules/alarm-manager/android')\n";
+    // ── Receivers ──────────────────────────────────────────────────────────────
+    if (!application.receiver) application.receiver = [];
+    var receivers = application.receiver;
+
+    // AlarmReceiver
+    function hasReceiver(name) {
+      return receivers.some(function(r) {
+        return r.$['android:name'] === 'com.creatorz.alarmmanager.' + name;
+      });
     }
-    return config;
-  });
-}
 
-// ─── withAlarmManagerBuildGradle ──────────────────────────────────────────────
-/**
- * Adds :creatorz-alarm-manager as an implementation dependency in
- * android/app/build.gradle so the Kotlin sources are compiled into the APK.
- */
-function withAlarmManagerBuildGradle(config) {
-  return withAppBuildGradle(config, function(config) {
-    var contents = config.modResults.contents;
-    if (contents.indexOf('creatorz-alarm-manager') === -1) {
-      config.modResults.contents = contents.replace(
-        /(\bdependencies\s*\{)/,
-        '$1\n    implementation project(\':creatorz-alarm-manager\')'
-      );
+    if (!hasReceiver('AlarmReceiver')) {
+      receivers.push({
+        $: {
+          'android:name': 'com.creatorz.alarmmanager.AlarmReceiver',
+          'android:exported': 'false'
+        }
+      });
     }
+
+    // AlarmDismissReceiver
+    if (!hasReceiver('AlarmDismissReceiver')) {
+      receivers.push({
+        $: {
+          'android:name': 'com.creatorz.alarmmanager.AlarmDismissReceiver',
+          'android:exported': 'false'
+        }
+      });
+    }
+
+    // BootReceiver (must have BOOT_COMPLETED intent-filter)
+    if (!hasReceiver('BootReceiver')) {
+      receivers.push({
+        $: {
+          'android:name': 'com.creatorz.alarmmanager.BootReceiver',
+          'android:exported': 'true'
+        },
+        'intent-filter': [
+          {
+            action: [{ $: { 'android:name': 'android.intent.action.BOOT_COMPLETED' } }],
+            category: [{ $: { 'android:name': 'android.intent.category.DEFAULT' } }]
+          }
+        ]
+      });
+    }
+
+    // ── Activities ─────────────────────────────────────────────────────────────
+    if (!application.activity) application.activity = [];
+    var activities = application.activity;
+
+    function hasActivity(name) {
+      return activities.some(function(a) {
+        return a.$['android:name'] === 'com.creatorz.alarmmanager.' + name;
+      });
+    }
+
+    // AlarmActivity (full-screen intent, shown over lock screen)
+    if (!hasActivity('AlarmActivity')) {
+      activities.push({
+        $: {
+          'android:name': 'com.creatorz.alarmmanager.AlarmActivity',
+          'android:exported': 'true',
+          'android:theme': '@android:style/Theme.NoTitleBar.Fullscreen'
+        },
+        'intent-filter': [
+          {
+            action: [{ $: { 'android:name': 'com.creatorz.ALARM_ACTIVITY' } }],
+            category: [{ $: { 'android:name': 'android.intent.category.DEFAULT' } }]
+          }
+        ]
+      });
+    }
+
+    // ── Services ───────────────────────────────────────────────────────────────
+    if (!application.service) application.service = [];
+    var services = application.service;
+
+    function hasService(name) {
+      return services.some(function(s) {
+        return s.$['android:name'] === 'com.creatorz.alarmmanager.' + name;
+      });
+    }
+
+    // AlarmForegroundService
+    if (!hasService('AlarmForegroundService')) {
+      services.push({
+        $: {
+          'android:name': 'com.creatorz.alarmmanager.AlarmForegroundService',
+          'android:exported': 'false',
+          'android:foregroundServiceType': 'specialUse'
+        }
+      });
+    }
+
     return config;
   });
 }
 
-// ─── Main plugin export ──────────────────────────────────────────────────────
-module.exports = function withCreatorzAlarmManager(config) {
-  config = withAlarmManagerManifest(config);
-  config = withAlarmManagerSettings(config);
-  config = withAlarmManagerBuildGradle(config);
-  return config;
+// ─── Module Export ────────────────────────────────────────────────────────────
+module.exports = function withAlarmManager(config) {
+  return withAlarmManagerManifest(config);
 };

@@ -1,12 +1,20 @@
 {
   "name": "creatorz-alarm-manager",
   "version": "1.0.0",
-  "description": "Native Android AlarmManager module for Creatorz — provides real alarm behavior (setAlarmClock, WakeLock, FullScreenIntent, BootReceiver)",
+  "description": "Native Android AlarmManager module for Creatorz — provides real alarm behavior (setAlarmClock, WakeLock, FullScreenIntent, BootReceiver). Expo SDK 53 compatible.",
   "main": "app.plugin.js",
   "plugin": "app.plugin.js",
-  "keywords": ["expo", "expo-module", "android", "alarm", "alarmmanager"],
+  "keywords": ["expo", "expo-module", "android", "alarm", "alarmmanager", "notification"],
   "peerDependencies": {
     "expo": ">=53.0.0",
-    "expo-modules-core": ">=2.0.0"
-  }
+    "expo-modules-core": ">=2.4.0"
+  },
+  "files": [
+    "android/",
+    "index.ts",
+    "index.web.ts",
+    "app.plugin.js",
+    "plugin.js",
+    "expo-module.config.json"
+  ]
 }

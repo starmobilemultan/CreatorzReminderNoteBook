@@ -5,101 +5,85 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 
 /**
- * AlarmForegroundService
- *
- * Keeps the CPU alive while the alarm is firing. Started by AlarmReceiver
- * immediately when an alarm goes off. Ensures the system does not kill the
- * alarm before the user acknowledges it, even on aggressive OEM battery
- * management (Samsung, Xiaomi, Huawei, OnePlus).
- *
- * The service posts a minimal foreground notification (required by Android 8+
- * for any foreground service) and stops itself after the alarm is dismissed
- * or after a safety timeout of 5 minutes.
+ * AlarmForegroundService — keeps the CPU alive during alarm display
+ * 
+ * When an alarm fires on Android 8+, we must run a foreground service to:
+ *   1. Keep the CPU from sleeping (doze/sleep prevention)
+ *   2. Display a persistent notification (required by Android 8+)
+ *   3. Ensure the full-screen intent reaches the user
  */
 class AlarmForegroundService : Service() {
+  companion object {
+    private const val TAG = "CreatorzAlarm"
+    private const val NOTIFICATION_ID = 9999
+    private const val CHANNEL_ID = "creatorz_alarm_service"
 
-    companion object {
-        const val CHANNEL_ID = "creatorz_alarm_service"
-        const val NOTIFICATION_ID = 9999
-        const val ACTION_STOP = "com.creatorz.ALARM_SERVICE_STOP"
-        const val EXTRA_TITLE = "alarm_title"
-        const val EXTRA_BODY = "alarm_body"
-        // Safety timeout: auto-stop after 5 minutes if user does not dismiss
-        const val AUTO_STOP_MS = 5 * 60 * 1000L
+    const val EXTRA_TITLE = "alarm_title"
+    const val EXTRA_BODY = "alarm_body"
+  }
+
+  override fun onCreate() {
+    super.onCreate()
+    Log.d(TAG, "🚀 AlarmForegroundService.onCreate")
+  }
+
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    val title = intent?.getStringExtra(EXTRA_TITLE) ?: "Alarm"
+    val body = intent?.getStringExtra(EXTRA_BODY) ?: ""
+
+    Log.d(TAG, "📢 AlarmForegroundService.onStartCommand: $title")
+
+    // Create notification channel (Android 8+)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      val channel = NotificationChannel(
+        CHANNEL_ID,
+        "Alarm Notifications",
+        NotificationManager.IMPORTANCE_MAX
+      ).apply {
+        description = "High-priority alarm notifications"
+        enableVibration(true)
+        setShowBadge(true)
+      }
+      val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      nm.createNotificationChannel(channel)
     }
 
-    private val stopRunnable = Runnable { stopSelf() }
+    // Build notification
+    val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+      .setContentTitle(title)
+      .setContentText(body)
+      .setSmallIcon(android.R.drawable.ic_dialog_info)
+      .setPriority(NotificationCompat.PRIORITY_MAX)
+      .setCategory(NotificationCompat.CATEGORY_ALARM)
+      .build()
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    // Start foreground service
+    startForeground(NOTIFICATION_ID, notification)
 
-    override fun onCreate() {
-        super.onCreate()
-        createNotificationChannel()
-    }
+    Log.d(TAG, "✅ AlarmForegroundService running in foreground")
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
+    // Stop after 10 minutes (alarm should be handled by then)
+    Thread {
+      Thread.sleep(10 * 60 * 1000) // 10 minutes
+      stopForeground(STOP_FOREGROUND_REMOVE)
+      stopSelf()
+      Log.d(TAG, "⏱ AlarmForegroundService stopped after timeout")
+    }.start()
 
-        val title = intent?.getStringExtra(EXTRA_TITLE) ?: "Alarm"
-        val body = intent?.getStringExtra(EXTRA_BODY) ?: ""
+    return START_STICKY
+  }
 
-        // Stop-service PendingIntent for the notification action
-        val stopIntent = Intent(this, AlarmForegroundService::class.java).apply {
-            action = ACTION_STOP
-        }
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            0,
-            stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+  override fun onDestroy() {
+    super.onDestroy()
+    Log.d(TAG, "🔚 AlarmForegroundService.onDestroy")
+  }
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle(title)
-            .setContentText(body.ifEmpty { "Tap to dismiss" })
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setOngoing(true)
-            .setAutoCancel(false)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Dismiss", stopPendingIntent)
-            .build()
-
-        startForeground(NOTIFICATION_ID, notification)
-
-        // Safety auto-stop
-        android.os.Handler(mainLooper).postDelayed(stopRunnable, AUTO_STOP_MS)
-
-        return START_STICKY
-    }
-
-    override fun onDestroy() {
-        android.os.Handler(mainLooper).removeCallbacks(stopRunnable)
-        super.onDestroy()
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Alarm Service",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Keeps alarm alive until acknowledged"
-                setShowBadge(false)
-            }
-            val nm = getSystemService(NotificationManager::class.java)
-            nm?.createNotificationChannel(channel)
-        }
-    }
+  override fun onBind(intent: Intent?) = null
 }

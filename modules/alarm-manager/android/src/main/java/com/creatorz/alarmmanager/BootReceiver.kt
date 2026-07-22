@@ -1,8 +1,11 @@
 package com.creatorz.alarmmanager
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -14,9 +17,13 @@ import org.json.JSONObject
  * for BOOT_COMPLETED (and QUICKBOOT_POWERON on some OEMs) and reschedules
  * every alarm stored in SharedPreferences by the JS layer.
  *
- * Required permission: RECEIVE_BOOT_COMPLETED
+ * Required permission: RECEIVE_BOOT_COMPLETED (added by config plugin)
  */
 class BootReceiver : BroadcastReceiver() {
+  companion object {
+    private const val TAG = "CreatorzAlarm"
+  }
+
   override fun onReceive(context: Context, intent: Intent) {
     val action = intent.action ?: return
     if (action != Intent.ACTION_BOOT_COMPLETED &&
@@ -24,9 +31,9 @@ class BootReceiver : BroadcastReceiver() {
       action != "com.htc.intent.action.QUICKBOOT_POWERON"
     ) return
 
-    Log.d("CreatorzAlarm", "📱 BootReceiver: device rebooted, restoring alarms...")
+    Log.d(TAG, "📱 BootReceiver: device rebooted, restoring alarms...")
 
-    val prefs = context.getSharedPreferences("creatorz_alarms", Context.MODE_PRIVATE)
+    val prefs = context.getSharedPreferences(AlarmManagerModule.PREFS_ALARMS, Context.MODE_PRIVATE)
     val alarmsJson = prefs.getString("alarms_data", "[]") ?: "[]"
 
     try {
@@ -46,14 +53,14 @@ class BootReceiver : BroadcastReceiver() {
 
         // Skip alarms that are in the past (> 1 min ago)
         if (triggerTimeMs < now - 60_000) {
-          Log.d("CreatorzAlarm", "⏭ Skipping past alarm: $alarmId (was ${(now - triggerTimeMs) / 1000}s ago)")
+          Log.d(TAG, "⏭ Skipping past alarm: $alarmId (was ${(now - triggerTimeMs) / 1000}s ago)")
           skipped++
           continue
         }
 
         // Re-schedule via the same AlarmManager code path
         val fireIntent = Intent(context, AlarmReceiver::class.java).apply {
-          this.action = "com.creatorz.ALARM_FIRE"
+          action = "com.creatorz.ALARM_FIRE"
           putExtra("alarmId", alarmId)
           putExtra("title", title)
           putExtra("body", body)
@@ -61,32 +68,32 @@ class BootReceiver : BroadcastReceiver() {
           putExtra("extra", extra)
         }
 
-        val flags = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-          android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         } else {
-          android.app.PendingIntent.FLAG_UPDATE_CURRENT
+          PendingIntent.FLAG_UPDATE_CURRENT
         }
 
-        val pendingIntent = android.app.PendingIntent.getBroadcast(
+        val pendingIntent = PendingIntent.getBroadcast(
           context, alarmId.hashCode(), fireIntent, flags
         )
 
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-          val clockInfo = android.app.AlarmManager.AlarmClockInfo(triggerTimeMs, pendingIntent)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+          val clockInfo = AlarmManager.AlarmClockInfo(triggerTimeMs, pendingIntent)
           alarmManager.setAlarmClock(clockInfo, pendingIntent)
         } else {
-          alarmManager.setExact(android.app.AlarmManager.RTC_WAKEUP, triggerTimeMs, pendingIntent)
+          alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerTimeMs, pendingIntent)
         }
 
         restored++
-        Log.d("CreatorzAlarm", "✅ Restored alarm: $alarmId at $triggerTimeMs")
+        Log.d(TAG, "✅ Restored alarm: $alarmId at $triggerTimeMs")
       }
 
-      Log.d("CreatorzAlarm", "📊 Boot restore: $restored restored, $skipped skipped")
+      Log.d(TAG, "📊 Boot restore complete: $restored restored, $skipped skipped")
     } catch (e: Exception) {
-      Log.e("CreatorzAlarm", "❌ Boot restore failed: ${e.message}")
+      Log.e(TAG, "❌ Boot restore failed: ${e.message}", e)
     }
   }
 }

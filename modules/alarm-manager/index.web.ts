@@ -1,8 +1,8 @@
 /**
  * modules/alarm-manager/index.web.ts
  *
- * Web stubs — native AlarmManager is Android-only.
- * Metro automatically picks this file when bundling for web.
+ * Web platform stub — all functions are no-ops on web.
+ * The module is Android-only; web builds skip this module entirely.
  */
 
 export interface AlarmData {
@@ -23,9 +23,26 @@ export interface PendingAlarmResult {
   timestamp: number;
 }
 
-export async function scheduleNativeAlarm(_alarm: AlarmData): Promise<void> {}
-export async function cancelNativeAlarm(_alarmId: string): Promise<void> {}
-export async function canScheduleExactAlarms(): Promise<boolean> { return true; }
-export async function persistAlarms(_alarms: AlarmData[]): Promise<void> {}
-export async function getPendingAlarm(): Promise<PendingAlarmResult | null> { return null; }
-export async function clearPendingAlarm(): Promise<void> {}
+export async function scheduleNativeAlarm(alarm: AlarmData): Promise<void> {
+  console.warn('[Alarm] scheduleNativeAlarm is not available on web platform');
+}
+
+export async function cancelNativeAlarm(alarmId: string): Promise<void> {
+  console.warn('[Alarm] cancelNativeAlarm is not available on web platform');
+}
+
+export async function canScheduleExactAlarms(): Promise<boolean> {
+  return false;
+}
+
+export async function persistAlarms(alarms: AlarmData[]): Promise<void> {
+  console.warn('[Alarm] persistAlarms is not available on web platform');
+}
+
+export async function getPendingAlarm(): Promise<PendingAlarmResult | null> {
+  return null;
+}
+
+export async function clearPendingAlarm(): Promise<void> {
+  console.warn('[Alarm] clearPendingAlarm is not available on web platform');
+}

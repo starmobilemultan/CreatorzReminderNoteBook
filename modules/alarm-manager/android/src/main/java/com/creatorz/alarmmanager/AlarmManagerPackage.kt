@@ -1,16 +1,14 @@
 package com.creatorz.alarmmanager
 
-import expo.modules.kotlin.modules.Module
+import expo.modules.core.BasePackage
 
 /**
- * AlarmManagerPackage — Expo Modules Kotlin Package registration
- *
- * This class implements expo.modules.kotlin.Package and exposes all modules
- * that this package provides. Expo's module autolinker discovers this class
- * automatically and calls createModules() at app initialization.
- *
- * This is the standard pattern for all Expo SDK 53 local modules.
+ * AlarmManagerPackage — registers the AlarmManagerModule with Expo
+ * 
+ * Expo SDK 53 automatically discovers and loads this via expo-modules-autolinking.
+ * The package's createExportedModules() method is called during module registration.
  */
-class AlarmManagerPackage : expo.modules.kotlin.Package {
-  override fun createModules(): List<Module> = listOf(AlarmManagerModule())
+class AlarmManagerPackage : BasePackage() {
+  override fun createExportedModules(context: expo.modules.core.ModuleRegistry) =
+    listOf(AlarmManagerModule())
 }
