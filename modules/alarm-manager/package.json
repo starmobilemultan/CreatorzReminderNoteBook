@@ -6,10 +6,7 @@
   "plugin": "app.plugin.js",
   "keywords": ["expo", "expo-module", "android", "alarm", "alarmmanager"],
   "peerDependencies": {
-    "expo": "*",
-    "expo-modules-core": "*"
-  },
-  "devDependencies": {
-    "@expo/config-plugins": "^9.0.0"
+    "expo": ">=53.0.0",
+    "expo-modules-core": ">=2.0.0"
   }
 }
