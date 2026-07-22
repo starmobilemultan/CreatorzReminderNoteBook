@@ -251,7 +251,7 @@ function withAlarmManagerBuildGradle(config) {
   });
 }
 
-// ─── Main plugin export ───────────────────────────────────────────────────────
+// ─── Main plugin export ──────────────────────────────────────────────────────
 module.exports = function withCreatorzAlarmManager(config) {
   config = withAlarmManagerManifest(config);
   config = withAlarmManagerSettings(config);
