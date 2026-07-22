@@ -151,6 +151,13 @@ export async function requestNotificationPermissionNative(): Promise<boolean> {
 export async function checkExactAlarmPermission(): Promise<boolean> {
   if (Platform.OS !== 'android') return true;
   try {
+    // Check via native AlarmManager (Android 12+)
+    if (Platform.OS === 'android') {
+      try {
+        const { checkNativeExactAlarmPermission } = require('./nativeAlarm');
+        return await checkNativeExactAlarmPermission();
+      } catch (_) {}
+    }
     const { status } = await Notifications.getPermissionsAsync();
     return status === 'granted';
   } catch {

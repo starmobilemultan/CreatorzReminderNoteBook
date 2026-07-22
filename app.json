@@ -44,14 +44,17 @@
         "android.permission.VIBRATE",
         "android.permission.USE_EXACT_ALARM",
         "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.REQUEST_SCHEDULE_EXACT_ALARM",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.USE_FULL_SCREEN_INTENT",
         "android.permission.WAKE_LOCK",
         "android.permission.DISABLE_KEYGUARD",
         "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
         "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
         "android.permission.SYSTEM_ALERT_WINDOW",
-        "android.permission.ACCESS_NOTIFICATION_POLICY"
+        "android.permission.ACCESS_NOTIFICATION_POLICY",
+        "android.permission.READ_EXTERNAL_STORAGE"
       ]
     },
 
@@ -63,6 +66,7 @@
 
     "plugins": [
       "expo-router",
+      "./modules/alarm-manager/plugin",
       [
         "expo-splash-screen",
         {

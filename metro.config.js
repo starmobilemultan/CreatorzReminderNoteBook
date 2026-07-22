@@ -1,11 +1,21 @@
+/**
+ * metro.config.js — Expo SDK 53 Metro configuration
+ *
+ * Key configuration:
+ * 1. transformIgnorePatterns — allow Babel to transpile Expo packages that
+ *    ship raw TypeScript source (e.g. @expo/metro-runtime)
+ * 2. sourceExts — add mjs/cjs for ESM compatibility
+ * 3. resolver.extraNodeModules — alias native-only modules to web stubs
+ * 4. Local modules directory resolution
+ */
+
 const { getDefaultConfig } = require('expo/metro-config');
+const path = require('path');
 
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(__dirname);
 
-// @expo/metro-runtime ships raw TypeScript (.ts) source files.
-// Metro skips node_modules by default, so we must explicitly allow
-// Babel to transform this package (and the other Expo packages).
+// ── Packages that need to be transformed by Babel ────────────────────────────
 const PACKAGES_TO_TRANSFORM = [
   '@expo/metro-runtime',
   'expo',
@@ -50,6 +60,11 @@ config.resolver = {
     'cjs',
   ],
   unstable_enablePackageExports: true,
+  // Resolve local modules directory
+  nodeModulesPaths: [
+    path.resolve(__dirname, 'node_modules'),
+    path.resolve(__dirname, 'modules'),
+  ],
 };
 
 module.exports = config;

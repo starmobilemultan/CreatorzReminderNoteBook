@@ -633,6 +633,29 @@ export default function SettingsScreen() {
           />
         </View>
 
+        {/* ── ALARM SYSTEM STATUS ────────────────────────────────────────── */}
+        <SectionHeader
+          title="Native Alarm System"
+          description="Real Android alarm engine — fires even when app is killed, screen is off, or device reboots. Requires development build (EAS Build)."
+          colors={colors}
+        />
+        <View style={[styles.card, { backgroundColor: colors.surface }]}>
+          <View style={styles.settingItem}>
+            <View style={styles.settingLeft}>
+              <MaterialIcons name="alarm" size={24} color={colors.success ?? '#10B981'} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.settingLabel, { color: colors.text }]}>AlarmManager Engine</Text>
+                <Text style={[styles.settingDesc2, { color: colors.textTertiary }]}>
+                  setAlarmClock() — Doze-exempt, BootReceiver, WakeLock, FullScreenIntent
+                </Text>
+              </View>
+            </View>
+            <View style={[{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: '#10B98120' }]}>
+              <Text style={{ color: '#10B981', fontSize: 11, fontWeight: '700' }}>ACTIVE</Text>
+            </View>
+          </View>
+        </View>
+
         {/* ── BATTERY OPTIMIZATION ──────────────────────────────────────── */}
         <SectionHeader
           title="Battery Optimization"

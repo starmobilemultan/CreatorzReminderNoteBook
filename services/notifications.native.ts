@@ -1,41 +1,44 @@
 /**
- * notifications.native.ts — iOS & Android only
+ * notifications.native.ts — iOS & Android notification service (Expo SDK 53)
  *
- * HOW ANDROID FULL-SCREEN INTENT ACTUALLY WORKS IN EXPO:
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ARCHITECTURE: DUAL-LAYER ALARM SYSTEM
+ * ═══════════════════════════════════════════════════════════════════════════
  *
- * In expo-notifications (managed workflow), full-screen intent is triggered
- * EXCLUSIVELY by the NOTIFICATION CHANNEL configuration, NOT by any content field.
+ * LAYER 1 — Native Android AlarmManager (nativeAlarm.ts → Kotlin module)
+ *   Used for: FULLSCREEN alarms (high-priority or fullscreen style)
+ *   Mechanism: AlarmManager.setAlarmClock() → BroadcastReceiver → AlarmActivity
+ *              → fullScreenIntent → React Native AlarmModal
+ *   Guarantees:
+ *     ✅ Fires when app is KILLED
+ *     ✅ Fires when screen is OFF (WakeLock wakes it)
+ *     ✅ Shows OVER lock screen
+ *     ✅ Survives DOZE mode (setAlarmClock is exempt from Doze)
+ *     ✅ Survives battery optimization
+ *     ✅ Restores after REBOOT (BootReceiver)
+ *     ✅ Plays alarm sound
+ *     ✅ Vibrates continuously
  *
- * The content object does NOT have a `fullScreenIntent` property in the
- * NotificationContentInput type. Setting `content.fullScreenIntent = true`
- * does nothing — it's just ignored data. (Previous implementations incorrectly
- * relied on this non-existent field.)
+ * LAYER 2 — expo-notifications (existing system)
+ *   Used for: POPUP and BANNER style reminders
+ *   Mechanism: NotificationManager.notify() → heads-up banner
+ *   Guarantees: Works when app is OPEN or in BACKGROUND (not reliable when KILLED)
  *
- * WHAT ACTUALLY TRIGGERS FULL-SCREEN INTENT:
- *   1. Channel importance = AndroidImportance.MAX  ← required
- *   2. Channel bypassDnd = true                    ← required
- *   3. USE_FULL_SCREEN_INTENT permission granted   ← required on Android 14+
- *   4. App is NOT battery-optimized                ← required for background
- *   5. SYSTEM_ALERT_WINDOW permission granted      ← required to show over lock
- *
- * When all of the above are met, Android automatically calls setFullScreenIntent()
- * on the notification and launches the app's MainActivity. Our app then shows
- * the AlarmModal over the current screen / lock screen.
- *
- * POPUP vs FULLSCREEN channel separation:
- *   - POPUP: reminders channel (HIGH importance, NO bypassDnd)
- *     → Heads-up banner on top of current app, does NOT launch app
- *   - FULLSCREEN: reminders-high channel (MAX importance, bypassDnd=true)
- *     → Wakes screen, launches app via fullScreenIntent, AlarmModal renders
- *   - BANNER: reminders channel (HIGH importance, no modal)
- *
- * HIGH PRIORITY reminders:
- *   notificationStyle='popup' + priority='high' + highPriorityFullscreen=true
- *   → Upgraded to fullscreen-reminder (uses reminders-high channel)
+ * COMBINED:
+ *   - Fullscreen reminders: BOTH layers (native for reliability + expo for UI)
+ *   - Popup reminders: expo-notifications only (HIGH importance channel)
+ *   - Banner reminders: expo-notifications only (DEFAULT importance)
+ *   - Pre-reminders: expo-notifications only
+ * ═══════════════════════════════════════════════════════════════════════════
  */
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { Reminder, AppSettings } from '../types';
+import {
+  scheduleNativeAlarmForReminder,
+  cancelNativeAlarmForReminder,
+  rescheduleAllNativeAlarms,
+} from './nativeAlarm';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 export const NOTIFICATION_CATEGORY_REMINDER = 'REMINDER_ACTIONS';
@@ -73,7 +76,6 @@ export function getAlarmChannelId(): string {
 }
 
 // ─── Foreground notification handler ─────────────────────────────────────────
-// Wrapped in a function (not top-level) to prevent module crash at load time.
 function registerNotificationHandler(): void {
   try {
     Notifications.setNotificationHandler({
@@ -90,7 +92,6 @@ function registerNotificationHandler(): void {
   }
 }
 
-// Register on first import (safe — wrapped in try/catch)
 try { registerNotificationHandler(); } catch (_) {}
 
 // ─── Register notification categories ────────────────────────────────────────
@@ -117,7 +118,6 @@ async function deleteStaleChannels(currentVersion: number): Promise<void> {
     }
   }
 
-  // Also delete any non-versioned legacy channels
   for (const base of bases) {
     try {
       await Notifications.deleteNotificationChannelAsync(base);
@@ -135,10 +135,7 @@ export async function ensureAndroidChannels(
   registerNotificationHandler();
   await deleteStaleChannels(_channelVersion);
 
-  // ── POPUP / BANNER channel ──────────────────────────────────────────────────
-  // HIGH importance → shows heads-up banner over current app.
-  // bypassDnd=false → respects Do Not Disturb.
-  // Does NOT trigger fullScreenIntent → app is NOT launched automatically.
+  // POPUP / BANNER channel (HIGH importance)
   await Notifications.setNotificationChannelAsync(versionedChannelId('reminders'), {
     name: 'Reminders',
     description: 'Popup and banner reminder alerts',
@@ -153,15 +150,10 @@ export async function ensureAndroidChannels(
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 
-  // ── FULLSCREEN / ALARM channel ──────────────────────────────────────────────
-  // MAX importance + bypassDnd=true → THIS is what triggers fullScreenIntent.
-  // Android automatically calls setFullScreenIntent() for MAX+bypassDnd channels.
-  // The app's MainActivity launches → AlarmModal renders over lock screen.
-  // REQUIRES: USE_FULL_SCREEN_INTENT permission (Android 14+)
-  //           SYSTEM_ALERT_WINDOW permission (for drawing over lock screen)
+  // FULLSCREEN / ALARM channel (MAX importance — kept for fallback + foreground)
   await Notifications.setNotificationChannelAsync(versionedChannelId('reminders-high'), {
     name: 'Alarm Reminders',
-    description: 'Full-screen alarms — wakes screen, bypasses Do Not Disturb',
+    description: 'Full-screen alarm notifications — wakes screen and bypasses Do Not Disturb',
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: vibrationEnabled ? [0, 500, 300, 500, 300, 500] : undefined,
     lightColor: '#EF4444',
@@ -173,8 +165,7 @@ export async function ensureAndroidChannels(
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 
-  // ── PRE-REMINDER channel ────────────────────────────────────────────────────
-  // DEFAULT importance → standard notification bar item, no heads-up banner.
+  // PRE-REMINDER channel (DEFAULT importance)
   await Notifications.setNotificationChannelAsync(versionedChannelId('reminders-pre'), {
     name: 'Early Reminders',
     description: 'Advance notice before a reminder is due',
@@ -267,10 +258,7 @@ function shouldUseFullScreen(reminder: Reminder, settings: AppSettings): boolean
   return false;
 }
 
-// ─── Build notification content ───────────────────────────────────────────────
-// IMPORTANT: There is NO `fullScreenIntent` property in expo-notifications
-// NotificationContentInput. Do NOT set it on content — it does nothing.
-// Full-screen intent behavior comes entirely from the channel (MAX + bypassDnd).
+// ─── Build expo-notifications content ────────────────────────────────────────
 function buildContent(
   reminder: Reminder,
   settings: AppSettings,
@@ -297,22 +285,15 @@ function buildContent(
   };
 
   if (Platform.OS === 'android') {
-    // channelId — MUST be the versioned channel ID created by ensureAndroidChannels
-    // For fullscreen: reminders-high_vN (MAX+bypassDnd → triggers fullScreenIntent)
-    // For popup/banner: reminders_vN (HIGH → heads-up banner only)
     content.channelId = ch;
-
     content.color = isFullScreen ? '#EF4444' : '#6366F1';
-
     content.priority = isFullScreen
       ? Notifications.AndroidNotificationPriority.MAX
       : Notifications.AndroidNotificationPriority.HIGH;
-
     content.lockscreenVisibility = Notifications.AndroidNotificationVisibility.PUBLIC;
     content.autoDismiss = true;
     content.sticky = false;
     content.ongoing = false;
-
     content.vibrationPattern = !settings.vibrationEnabled
       ? null
       : isFullScreen
@@ -386,6 +367,15 @@ export async function scheduleReminderNotification(
       notifType = 'popup-reminder';
     }
 
+    // ── LAYER 1: Schedule native alarm for fullscreen type (Android only) ──
+    // This is the real alarm mechanism that works when app is killed/screen off.
+    if (Platform.OS === 'android' && useFullScreen) {
+      await scheduleNativeAlarmForReminder(reminder, settings);
+      // Also schedule expo-notifications as a fallback for foreground/background cases
+      // (the native alarm handles killed state; expo-notifications handles in-app display)
+    }
+
+    // ── LAYER 2: Schedule expo-notifications (popup/banner, + foreground fallback) ──
     const ch = notifType === 'fullscreen-reminder'
       ? versionedChannelId('reminders-high')
       : versionedChannelId('reminders');
@@ -451,7 +441,7 @@ export async function scheduleReminderNotification(
     }
 
     console.log(
-      `[Notifications] ✅ "${reminder.title}" | type=${notifType} | ch=${ch} | repeat=${reminder.repeat}`
+      `[Notifications] ✅ "${reminder.title}" | type=${notifType} | ch=${ch} | repeat=${reminder.repeat} | native=${Platform.OS === 'android' && useFullScreen}`
     );
 
     if (settings.preNotifyEnabled && (settings.preNotifyMinutes ?? 10) > 0) {
@@ -516,6 +506,7 @@ async function schedulePreNotification(
 
 // ─── Cancel all notifications for a reminder ─────────────────────────────────
 export async function cancelReminderNotifications(reminderId: string): Promise<void> {
+  // Cancel expo-notifications
   const ids = [
     `reminder-${reminderId}`,
     `reminder-pre-${reminderId}`,
@@ -536,6 +527,11 @@ export async function cancelReminderNotifications(reminderId: string): Promise<v
       await Notifications.cancelScheduledNotificationAsync(`reminder-${reminderId}-y${i}`);
     } catch (_) {}
   }
+
+  // Cancel native AlarmManager alarm
+  if (Platform.OS === 'android') {
+    await cancelNativeAlarmForReminder(reminderId);
+  }
 }
 
 // ─── Reschedule all active reminders ─────────────────────────────────────────
@@ -549,6 +545,12 @@ export async function rescheduleAllNotifications(
 
     if (!settings.notificationEnabled) {
       await Notifications.cancelAllScheduledNotificationsAsync();
+      // Also cancel all native alarms
+      if (Platform.OS === 'android') {
+        const ids = reminders.map(r => `alarm-${r.id}`);
+        const { cancelAllNativeAlarms } = require('./nativeAlarm');
+        await cancelAllNativeAlarms(ids).catch(() => {});
+      }
       console.log('[Notifications] Notifications disabled — cancelled all.');
       return;
     }
@@ -560,7 +562,12 @@ export async function rescheduleAllNotifications(
       await scheduleReminderNotification(reminder, settings);
     }
 
-    console.log(`[Notifications] ✅ Rescheduled ${active.length} active reminders.`);
+    // Reschedule all native alarms (also persists for BootReceiver)
+    if (Platform.OS === 'android') {
+      await rescheduleAllNativeAlarms(active, settings);
+    }
+
+    console.log(`[Notifications] ✅ Rescheduled ${active.length} reminders (expo + native).`);
   } catch (err) {
     console.error('[Notifications] rescheduleAll failed:', err);
   }
@@ -580,6 +587,10 @@ export async function snoozeReminder(
     try {
       await Notifications.cancelScheduledNotificationAsync(`reminder-snooze-${reminderId}`);
     } catch (_) {}
+    if (Platform.OS === 'android') {
+      const { cancelNativeAlarm } = require('./nativeAlarm');
+      await cancelNativeAlarm(`alarm-snooze-${reminderId}`).catch(() => {});
+    }
 
     await ensureAndroidChannels(settings.soundEnabled, settings.vibrationEnabled);
     await registerNotificationCategories();
@@ -601,6 +612,27 @@ export async function snoozeReminder(
     const priorityLabel = getPriorityLabel(priority);
     const fullBody = [priorityLabel, reminderBody].filter(Boolean).join('\n');
     const timeLabel = snoozeMinutes >= 60 ? `${snoozeMinutes / 60}h` : `${snoozeMinutes} min`;
+
+    // Schedule native alarm for snooze (fullscreen type on Android)
+    if (Platform.OS === 'android' && useFullScreen) {
+      const { scheduleNativeAlarm } = require('./nativeAlarm');
+      await scheduleNativeAlarm({
+        id: `alarm-snooze-${reminderId}`,
+        triggerTimeMs: snoozeDate.getTime(),
+        title: `🔔 ${reminderTitle}`,
+        body: fullBody || 'Snoozed reminder — time is up!',
+        priority,
+        extra: JSON.stringify({
+          reminderId,
+          reminderTitle,
+          reminderBody,
+          type: notifType,
+          priority,
+          snoozed: true,
+          notificationStyle,
+        }),
+      }).catch((e: any) => console.warn('[Notifications] Snooze native alarm failed:', e));
+    }
 
     const snoozeContent: any = {
       title: `🔔 ${reminderTitle}`,
@@ -643,7 +675,7 @@ export async function snoozeReminder(
     });
 
     console.log(
-      `[Notifications] Snoozed "${reminderTitle}" for ${snoozeMinutes} min | type=${notifType} | ch=${ch}`
+      `[Notifications] Snoozed "${reminderTitle}" for ${snoozeMinutes} min | type=${notifType} | native=${Platform.OS === 'android' && useFullScreen}`
     );
   } catch (err) {
     console.error('[Notifications] Snooze failed:', err);
@@ -669,6 +701,26 @@ export async function scheduleTestNotification(settings: AppSettings): Promise<v
   const ch = isFullScreen
     ? versionedChannelId('reminders-high')
     : versionedChannelId('reminders');
+
+  // For fullscreen test on Android, also schedule native alarm (5 seconds)
+  if (Platform.OS === 'android' && isFullScreen) {
+    const { scheduleNativeAlarm } = require('./nativeAlarm');
+    await scheduleNativeAlarm({
+      id: `alarm-test-${Date.now()}`,
+      triggerTimeMs: Date.now() + 5000,
+      title: '🔔 Test Alarm',
+      body: '🟡 MEDIUM PRIORITY\nThis is a test — your alarms are working!',
+      priority: 'medium',
+      extra: JSON.stringify({
+        reminderId: 'test-' + Date.now(),
+        reminderTitle: 'Test Alarm',
+        reminderBody: 'This is a test notification!',
+        type: 'fullscreen-reminder',
+        priority: 'medium',
+        notificationStyle: settings.notificationStyle,
+      }),
+    }).catch((e: any) => console.warn('[Notifications] Test native alarm failed:', e));
+  }
 
   const testContent: any = {
     title: '🔔 Test Reminder',

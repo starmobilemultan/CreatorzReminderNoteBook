@@ -44,7 +44,7 @@ jobs:
           }
           EOF
 
-      - name: Build Android APK
+      - name: Build Android APK (Preview — includes native AlarmManager module)
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |

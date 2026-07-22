@@ -1,0 +1,12 @@
+{
+  "name": "creatorz-alarm-manager",
+  "version": "1.0.0",
+  "description": "Native Android AlarmManager module for Creatorz — provides real alarm behavior (setAlarmClock, WakeLock, FullScreenIntent, BootReceiver)",
+  "main": "index.ts",
+  "android": {
+    "gradleVersion": "8.x"
+  },
+  "peerDependencies": {
+    "expo": "*"
+  }
+}
