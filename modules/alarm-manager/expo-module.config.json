@@ -1,6 +1,6 @@
 {
-  "platforms": ["android"],
+  "platforms": ["android", "web"],
   "android": {
-    "modules": ["AlarmManagerModule"]
+    "modules": ["com.creatorz.alarmmanager.AlarmManagerModule"]
   }
 }

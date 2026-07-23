@@ -1,74 +1,26 @@
-/**
- * android/build.gradle — Alarm Manager native Android library
- * Expo SDK 53 compatible — works with pnpm strict isolation + EAS Cloud
- * 
- * CRITICAL FIX:
- * Do NOT declare expo-modules-core, react-android, or any Expo deps in dependencies.
- * They are provided by expo-modules-autolinking at Gradle configuration time.
- * The host app's expo-modules-core is auto-linked and available on the classpath.
- */
-
-apply plugin: 'com.android.library'
-apply plugin: 'kotlin-android'
-
-android {
-    namespace "com.creatorz.alarmmanager"
-    
-    // Must match the host app's compileSdkVersion (Expo SDK 53 uses 35)
-    compileSdkVersion 35
-
-    defaultConfig {
-        minSdkVersion 24
-        targetSdkVersion 35
-        versionCode 1
-        versionName "1.0.0"
-    }
-
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
-    buildFeatures {
-        buildConfig false
-    }
-
-    // Remove buildTypes cruft
-    buildTypes {
-        release {
-            minifyEnabled false
-        }
-    }
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
 }
 
-/**
- * dependencies — ONLY standard Android/Kotlin libraries
- * 
- * Expo SDK 53 provides via expo-modules-autolinking:
- *   - react-android:0.79.+
- *   - expo-modules-core:2.4.0
- *   - All Kotlin/Gradle plugins
- * 
- * These are resolved by expo-modules-autolinking and added to the compile classpath
- * BEFORE this build.gradle is evaluated. DO NOT redeclare them.
- */
+group = 'com.creatorz.alarmmanager'
+version = '1.0.0'
+
+android {
+  namespace "com.creatorz.alarmmanager"
+
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+
+  lint {
+    abortOnError false
+  }
+}
+
 dependencies {
-    // ──────────────────────────────────────────────────────────────────────────
-    // Standard AndroidX/Kotlin libraries (no version conflicts, widely compatible)
-    // ──────────────────────────────────────────────────────────────────────────
-    
-    // Core Kotlin + coroutines
-    implementation "androidx.core:core-ktx:1.13.1"
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.21"
-    
-    // AndroidX essentials (used by notification/alarm APIs)
-    implementation "androidx.appcompat:appcompat:1.7.0"
-    implementation "androidx.work:work-runtime-ktx:2.9.1"
-    
-    // JSON parsing (included with Android SDK, but explicit for clarity)
-    implementation "org.json:json:20240303"
+  implementation "androidx.core:core-ktx:1.13.1"
+  implementation "androidx.appcompat:appcompat:1.7.0"
+  implementation "androidx.work:work-runtime-ktx:2.9.1"
 }
